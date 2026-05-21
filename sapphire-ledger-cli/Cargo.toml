@@ -9,7 +9,7 @@ categories = ["command-line-utilities", "finance"]
 keywords = ["accounting", "ledger", "double-entry", "cli", "mcp"]
 
 [[bin]]
-name = "sale"
+name = "sapphire-ledger"
 path = "src/main.rs"
 
 [dependencies]

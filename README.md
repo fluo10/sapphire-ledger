@@ -17,7 +17,7 @@ Local-first double-entry household ledger that keeps your data alive as plain te
 sapphire-ledger/
 ├── sapphire-ledger-core/      # Data model, TOML parser/serializer, SQLite cache
 ├── sapphire-ledger-mcp/       # MCP server logic (library, reused by CLI and Desktop)
-├── sapphire-ledger-cli/       # CLI binary (sale) with stdio MCP server bundled
+├── sapphire-ledger-cli/       # CLI binary (sapphire-ledger) with stdio MCP server bundled
 └── sapphire-ledger-desktop/   # Desktop GUI (egui) with HTTP MCP server bundled
 ```
 
