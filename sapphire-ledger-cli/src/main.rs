@@ -29,6 +29,8 @@ enum Command {
         #[arg(long, default_value = "JPY")]
         base_currency: String,
     },
+    /// Load every record and report any validation issues
+    Check,
     /// Run the MCP server over stdio
     Mcp,
 }
@@ -49,6 +51,26 @@ fn main() -> Result<()> {
                 base_currency
             );
             Ok(())
+        }
+        Command::Check => {
+            let start = cli.ledger_dir.unwrap_or_else(|| PathBuf::from("."));
+            let root = sapphire_ledger_core::find_workspace_root(&start)?;
+            let workspace = sapphire_ledger_core::load_workspace(&root)?;
+            let issues = workspace.validate();
+            if issues.is_empty() {
+                println!(
+                    "OK: {} account(s), {} transaction(s), {} assertion(s)",
+                    workspace.accounts.len(),
+                    workspace.transactions.len(),
+                    workspace.assertions.len()
+                );
+                Ok(())
+            } else {
+                for issue in &issues {
+                    eprintln!("- {}", issue.message);
+                }
+                anyhow::bail!("validation failed with {} issue(s)", issues.len());
+            }
         }
         Command::Mcp => {
             anyhow::bail!("mcp: not yet implemented");

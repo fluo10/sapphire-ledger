@@ -10,6 +10,7 @@ pub mod config;
 pub mod error;
 pub mod repository;
 pub mod transaction;
+pub mod validate;
 pub mod workspace;
 
 pub use account::{Account, AccountType, account_name_segments};
@@ -18,6 +19,7 @@ pub use config::{CURRENT_SCHEMA_VERSION, CacheConfig, Config};
 pub use error::{Error, Result};
 pub use repository::{Workspace, load_toml, load_workspace, save_toml, walk_toml_files};
 pub use transaction::{Posting, Price, Transaction, TransactionStatus};
+pub use validate::ValidationIssue;
 pub use workspace::{
     account_name_from_relative_path, account_relative_path, assertion_relative_path,
     find_workspace_root, init_workspace, transaction_relative_path,
