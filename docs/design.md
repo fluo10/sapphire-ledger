@@ -268,7 +268,7 @@ gitignored. Initial sketch of tables: `transactions`, `postings`,
 sapphire-ledger/
 ├── sapphire-ledger-core/      # data model, TOML I/O, validation
 ├── sapphire-ledger-mcp/       # MCP server logic — LIBRARY only
-├── sapphire-ledger-cli/       # `sale` binary, embeds stdio MCP
+├── sapphire-ledger-cli/       # `sapphire-ledger` binary, embeds stdio MCP
 └── sapphire-ledger-desktop/   # egui GUI, embeds opt-in HTTP MCP
 ```
 
@@ -292,7 +292,7 @@ which is the template implementation to mirror.
 **not** produce a binary. There is no `sapphire-ledger-mcp` CLI to
 install separately.
 
-### CLI: stdio transport via `sale mcp`
+### CLI: stdio transport via `sapphire-ledger mcp`
 
 The CLI gains a `Mcp` subcommand that hands control to the library:
 
@@ -300,7 +300,7 @@ The CLI gains a `Mcp` subcommand that hands control to the library:
 Command::Mcp { init } => sapphire_ledger_mcp::run(cli.ledger_dir.as_deref(), init)?,
 ```
 
-`sale mcp [--init] [--ledger-dir DIR]` speaks the MCP protocol over
+`sapphire-ledger mcp [--init] [--ledger-dir DIR]` speaks the MCP protocol over
 stdio so it can be wired directly into Claude Desktop / Claude Code as
 an `mcp__sapphire-ledger__*` server. `--init` lets the agent create a
 fresh workspace if the target directory isn't one yet (no-op when it
@@ -362,10 +362,10 @@ permissive until there is a reason to tighten it.
 - ✅ TOML round-trip with serde.
 - ✅ Path conventions, workspace discovery, `init_workspace`.
 - ✅ Repository I/O (`load_toml`, `save_toml`, `walk_toml_files`, `load_workspace`).
-- ✅ Cross-record validation + `sale check`.
+- ✅ Cross-record validation + `sapphire-ledger check`.
 - 🚧 SQLite cache — designed, not implemented.
 - 🚧 MCP server logic — empty library stub.
-- 🚧 CLI write commands (`sale account add`, `sale tx add`).
+- 🚧 CLI write commands (`sapphire-ledger account add`, `sapphire-ledger tx add`).
 - 🚧 caretta-id / grain-id integration for ID generation.
 - 🚧 Price log (FX rate timeseries).
 - 🚧 Phase 2: subtree assertions, `pad`, attachments, recurring templates, VS Code extension, mobile.

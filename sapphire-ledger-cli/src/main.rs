@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "sale",
+    name = "sapphire-ledger",
     about = "Local-first double-entry household ledger",
     version
 )]
