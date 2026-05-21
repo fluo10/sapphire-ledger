@@ -25,6 +25,9 @@ enum Command {
     Init {
         /// Directory to initialize (created if it does not exist)
         path: Option<PathBuf>,
+        /// Base currency used for reporting (default: JPY)
+        #[arg(long, default_value = "JPY")]
+        base_currency: String,
     },
     /// Run the MCP server over stdio
     Mcp,
@@ -34,8 +37,18 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Init { path: _ } => {
-            anyhow::bail!("init: not yet implemented");
+        Command::Init {
+            path,
+            base_currency,
+        } => {
+            let target = path.unwrap_or_else(|| PathBuf::from("."));
+            sapphire_ledger_core::init_workspace(&target, &base_currency)?;
+            println!(
+                "Initialized sapphire-ledger workspace at {} (base currency: {})",
+                target.display(),
+                base_currency
+            );
+            Ok(())
         }
         Command::Mcp => {
             anyhow::bail!("mcp: not yet implemented");
