@@ -1,0 +1,19 @@
+[package]
+name = "sapphire-ledger-cli"
+version = "0.1.0"
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+categories = ["command-line-utilities", "finance"]
+keywords = ["accounting", "ledger", "double-entry", "cli", "mcp"]
+
+[[bin]]
+name = "sale"
+path = "src/main.rs"
+
+[dependencies]
+sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0" }
+sapphire-ledger-mcp  = { path = "../sapphire-ledger-mcp",  version = "0.1.0" }
+clap.workspace = true
+anyhow.workspace = true

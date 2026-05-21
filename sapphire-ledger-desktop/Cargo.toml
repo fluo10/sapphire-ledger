@@ -1,0 +1,13 @@
+[package]
+name = "sapphire-ledger-desktop"
+version = "0.1.0"
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0" }
+sapphire-ledger-mcp  = { path = "../sapphire-ledger-mcp",  version = "0.1.0" }
+eframe = "0.34"
+egui = "0.34"

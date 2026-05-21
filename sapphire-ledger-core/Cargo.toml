@@ -1,0 +1,16 @@
+[package]
+name = "sapphire-ledger-core"
+version = "0.1.0"
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+categories = ["finance", "filesystem", "data-structures"]
+keywords = ["accounting", "ledger", "double-entry", "household", "plain-text"]
+
+[dependencies]
+serde.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+rust_decimal.workspace = true

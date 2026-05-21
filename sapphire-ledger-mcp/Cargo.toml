@@ -1,0 +1,15 @@
+[package]
+name = "sapphire-ledger-mcp"
+version = "0.1.0"
+edition.workspace = true
+description = "MCP server logic for sapphire-ledger, reused by CLI (stdio) and Desktop (HTTP)"
+license.workspace = true
+repository.workspace = true
+categories = ["finance"]
+keywords = ["accounting", "ledger", "mcp", "double-entry"]
+
+[dependencies]
+sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
