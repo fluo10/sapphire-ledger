@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain (and its clippy/rustfmt components) comes from
+      # rust-toolchain.toml. rustup installs it on first use; do that in its
+      # own step so the download does not land in the middle of another one.
+      - name: Install the pinned toolchain
+        run: cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # sapphire-ledger-desktop pulls eframe 0.34 -> winit 0.30, which needs
+      # xkbcommon plus the X11 and Wayland client libraries even to *build*.
+      # No audio and no GTK/WebKit here, unlike sapphire-agent and
+      # sapphire-journal — this crate is egui-only.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            cmake \
+            protobuf-compiler \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev
+
+      # Formatting first: it needs no build, so a formatting-only failure
+      # reports in seconds instead of after the whole workspace compiles.
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # --locked matters more here than in a normal crate: sapphire-framework
+      # is a git dependency tracking `main`, so without it CI would silently
+      # test against whatever that branch happens to be today rather than the
+      # revision Cargo.lock pins.
+      - name: Test
+        run: cargo test --workspace --all-features --locked

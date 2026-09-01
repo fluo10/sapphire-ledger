@@ -1,0 +1,12 @@
+# Pin the toolchain so CI and local checkouts agree.
+#
+# CI runs `cargo clippy -- -D warnings` and `cargo fmt --check`. Without a pin,
+# every new stable release lands its new lints and its new formatting directly
+# in a red CI run on an unrelated pull request — and a contributor on an older
+# stable cannot reproduce the failure. Bump this deliberately instead, and fix
+# whatever the new toolchain complains about in the same commit.
+#
+# Matches sapphire-framework, which this repository depends on.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
