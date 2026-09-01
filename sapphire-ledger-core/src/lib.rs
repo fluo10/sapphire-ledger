@@ -1,8 +1,10 @@
 //! Core data model and storage for sapphire-ledger.
 //!
 //! Defines the on-disk TOML record types (Account, Transaction, Assertion,
-//! workspace Config) and their validation. SQLite cache and higher-level
-//! repository operations will be added in later phases.
+//! PriceEntry, workspace Config), their validation, and the [`ops`] write
+//! path that mints ids, resolves account references and enforces the
+//! refuse-to-overwrite rule. There is no SQLite cache here and none is
+//! planned — see "Cache strategy" in `docs/design.md`.
 
 pub mod account;
 pub mod assertion;
