@@ -12,12 +12,7 @@ pub enum TransactionStatus {
     Pending,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Price {
-    #[serde(with = "rust_decimal::serde::str")]
-    pub value: Decimal,
-    pub currency: String,
-}
+pub use crate::prices::Price;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Posting {
