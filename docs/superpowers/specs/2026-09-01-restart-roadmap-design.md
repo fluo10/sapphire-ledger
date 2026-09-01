@@ -47,8 +47,8 @@ the template is different from what #2/#3 assumed.
 both consume it. Staying off it means re-implementing workspace discovery, mtime
 tracking, search, sync, and blob storage that already exist.
 
-Minor: `docs/design.md` still says "caretta-id". The crate is
-[`grain-id`](https://github.com/fluo10/grain-id), now a sibling submodule.
+Minor: `docs/design.md` still says "caretta-id". The crate is published as
+[`grain-id`](https://crates.io/crates/grain-id).
 
 ## Decisions
 
