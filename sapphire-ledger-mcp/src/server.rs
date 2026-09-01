@@ -231,9 +231,11 @@ fn parse_status(raw: &str) -> anyhow::Result<sapphire_ledger_core::TransactionSt
     })
 }
 
-/// Split a caller-supplied account reference into the id/name pair `ops`
-/// expects. We do not know which one it is, so both are offered and `ops`
-/// resolves: an exact id match wins, otherwise the name is tried.
+/// Classify a caller-supplied account reference into exactly one slot of the
+/// id/name pair `ops` expects: `account_id` if `needle` matches a known
+/// account's id, otherwise `account_name`. `ops::resolve_account` then
+/// resolves whichever slot was filled -- an id that does not match is a hard
+/// error, it is never retried as a name.
 fn split_account_ref(
     needle: &str,
     accounts: &[sapphire_ledger_core::Account],
@@ -243,6 +245,26 @@ fn split_account_ref(
     } else {
         (None, Some(needle.to_string()))
     }
+}
+
+/// Build a write tool's success message, appending a warning if the
+/// post-write `reload()` failed. The record is on disk and the observer has
+/// already been told either way -- this only affects what the caller reads
+/// back, never whether the write is reported as having happened.
+fn write_result(
+    kind: &str,
+    id: &str,
+    dest: &Path,
+    reload_err: Option<sapphire_ledger_core::Error>,
+) -> String {
+    let mut msg = format!("created {kind} {id}: {}", dest.display());
+    if let Some(e) = reload_err {
+        msg.push_str(&format!(
+            "\nWARNING: the record was written, but the ledger snapshot could not be \
+             reloaded afterwards: {e}"
+        ));
+    }
+    msg
 }
 
 fn build_posting(
@@ -452,10 +474,12 @@ impl SapphireLedgerServer {
                 opened_at,
                 p.description,
             )?;
-            guard.reload()?;
+            let reload_err = guard.reload().err();
             drop(guard);
-            self.notify_write(&[dest.clone()]);
-            Ok(format!("created account {id}: {}", dest.display()))
+            // The file exists regardless of whether we could re-read the
+            // workspace, so the observer must always hear about it.
+            self.notify_write(std::slice::from_ref(&dest));
+            Ok(write_result("account", &id, &dest, reload_err))
         })()
         .map_err(|e| e.to_string())
     }
@@ -473,6 +497,11 @@ impl SapphireLedgerServer {
             let status = p.status.as_deref().map(parse_status).transpose()?;
 
             let mut guard = self.lock_state();
+            // Nothing has been written yet, so a failure here should refuse
+            // the write rather than resolve accounts against a stale
+            // snapshot -- `ops` reads the accounts directory fresh, and this
+            // keeps the reference the MCP layer classifies in sync with it.
+            guard.reload()?;
             let postings = {
                 let accounts = &guard.workspace().accounts;
                 p.postings
@@ -489,10 +518,10 @@ impl SapphireLedgerServer {
                 status,
                 postings,
             )?;
-            guard.reload()?;
+            let reload_err = guard.reload().err();
             drop(guard);
-            self.notify_write(&[dest.clone()]);
-            Ok(format!("created transaction {id}: {}", dest.display()))
+            self.notify_write(std::slice::from_ref(&dest));
+            Ok(write_result("transaction", &id, &dest, reload_err))
         })()
         .map_err(|e| e.to_string())
     }
@@ -519,14 +548,17 @@ impl SapphireLedgerServer {
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             let mut guard = self.lock_state();
+            // See add_transaction: refuse the write rather than classify the
+            // account reference against a stale snapshot.
+            guard.reload()?;
             let (account_id, account_name) =
                 split_account_ref(&p.account, &guard.workspace().accounts);
             let (id, dest) =
                 ops::create_assertion(guard.root(), account_id, account_name, date, balances)?;
-            guard.reload()?;
+            let reload_err = guard.reload().err();
             drop(guard);
-            self.notify_write(&[dest.clone()]);
-            Ok(format!("created assertion {id}: {}", dest.display()))
+            self.notify_write(std::slice::from_ref(&dest));
+            Ok(write_result("assertion", &id, &dest, reload_err))
         })()
         .map_err(|e| e.to_string())
     }
@@ -543,10 +575,10 @@ impl SapphireLedgerServer {
             let mut guard = self.lock_state();
             let (id, dest) =
                 ops::create_price(guard.root(), date, p.base, p.quote, rate, p.source)?;
-            guard.reload()?;
+            let reload_err = guard.reload().err();
             drop(guard);
-            self.notify_write(&[dest.clone()]);
-            Ok(format!("created price {id}: {}", dest.display()))
+            self.notify_write(std::slice::from_ref(&dest));
+            Ok(write_result("price", &id, &dest, reload_err))
         })()
         .map_err(|e| e.to_string())
     }
@@ -901,6 +933,83 @@ currency = "JPY"
         assert!(
             err.contains("Bogus"),
             "the error should name the bad input, got: {err}"
+        );
+    }
+
+    /// Build a throwaway server that records every path it is asked to
+    /// notify about, so a test can assert the observer actually fired.
+    fn test_server_with_observer() -> (
+        tempfile::TempDir,
+        SapphireLedgerServer,
+        Arc<Mutex<Vec<PathBuf>>>,
+    ) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = prepare_state(Some(dir.path()), true).expect("init test ledger");
+        let seen: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen_for_observer = Arc::clone(&seen);
+        let server = SapphireLedgerServer::new(state).with_write_observer(Arc::new(
+            move |paths: &[PathBuf]| {
+                seen_for_observer.lock().unwrap().extend_from_slice(paths);
+            },
+        ));
+        (dir, server, seen)
+    }
+
+    #[test]
+    fn a_successful_write_notifies_the_observer() {
+        let (_dir, server, seen) = test_server_with_observer();
+
+        server
+            .add_price(Parameters(AddPriceParams {
+                date: "2026-05-21".into(),
+                base: "USD".into(),
+                quote: "JPY".into(),
+                rate: "150".into(),
+                source: None,
+            }))
+            .expect("add_price");
+
+        assert_eq!(
+            seen.lock().unwrap().len(),
+            1,
+            "observer should fire exactly once for one write"
+        );
+    }
+
+    /// `load_workspace` is fail-fast over every file in the workspace, so a
+    /// single malformed record anywhere -- a human edit, a half-finished
+    /// sync, a git conflict marker -- makes the post-write `reload()` fail.
+    /// That must not be reported as a failed write: the file is genuinely on
+    /// disk, the observer must still be told, and an AI caller must not be
+    /// tempted to retry (which would mint a second, duplicate record).
+    #[test]
+    fn a_broken_record_does_not_turn_a_successful_write_into_a_reported_failure() {
+        let (dir, server, seen) = test_server_with_observer();
+
+        let broken = dir.path().join("transactions/2026/05/tx-broken.toml");
+        std::fs::create_dir_all(broken.parent().unwrap()).expect("mkdir");
+        std::fs::write(&broken, "this is not valid toml >>>>>>> HEAD\n")
+            .expect("write broken toml");
+
+        let result = server
+            .add_price(Parameters(AddPriceParams {
+                date: "2026-05-21".into(),
+                base: "USD".into(),
+                quote: "JPY".into(),
+                rate: "150".into(),
+                source: None,
+            }))
+            .expect("the write itself succeeded; only the post-write reload should fail");
+
+        assert!(result.contains("created price"), "got: {result}");
+        assert!(
+            result.contains("WARNING"),
+            "the caller should be told the snapshot reload failed, got: {result}"
+        );
+        assert_eq!(
+            seen.lock().unwrap().len(),
+            1,
+            "the observer must still fire even though reload() failed"
         );
     }
 }
