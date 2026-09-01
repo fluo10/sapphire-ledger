@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use crate::account::Account;
 use crate::assertion::Assertion;
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::prices::PriceEntry;
 use crate::transaction::Transaction;
 use crate::workspace::{
@@ -16,9 +16,18 @@ use crate::workspace::{
 };
 
 /// Read a TOML file and deserialize it into `T`.
+///
+/// Both failure modes are tagged with the file they came from. `load_workspace`
+/// is fail-fast across the whole ledger, so without the path a single bad
+/// record aborts the load with a parse error naming a line number in a file
+/// nobody can identify.
 pub fn load_toml<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    let text = fs::read_to_string(path)?;
-    Ok(toml::from_str(&text)?)
+    let at = |source: Error| Error::Record {
+        path: path.to_path_buf(),
+        source: Box::new(source),
+    };
+    let text = fs::read_to_string(path).map_err(|e| at(e.into()))?;
+    toml::from_str(&text).map_err(|e| at(e.into()))
 }
 
 /// Serialize `value` as TOML and write it to `path`, creating parent

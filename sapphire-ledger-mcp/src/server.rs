@@ -247,6 +247,17 @@ fn split_account_ref(
     }
 }
 
+/// Render an error for the agent, chain and all.
+///
+/// A tool's error text is the only thing the operator -- an AI assistant --
+/// can act on, and the context naming *which file* is broken lives in the
+/// source chain rather than in the outermost message. `{:#}` on an
+/// `anyhow::Error` walks that chain; plain `to_string()` prints the context
+/// and drops the reason.
+fn render_error(e: anyhow::Error) -> String {
+    format!("{e:#}")
+}
+
 /// Build a write tool's success message, appending a warning if the
 /// post-write `reload()` failed. The record is on disk and the observer has
 /// already been told either way -- this only affects what the caller reads
@@ -259,6 +270,9 @@ fn write_result(
 ) -> String {
     let mut msg = format!("created {kind} {id}: {}", dest.display());
     if let Some(e) = reload_err {
+        // Same reason as `render_error`: the path naming the broken file is
+        // in the chain, not in the outermost message.
+        let e = render_error(e.into());
         msg.push_str(&format!(
             "\nWARNING: the record was written, but the ledger snapshot could not be \
              reloaded afterwards: {e}"
@@ -317,7 +331,7 @@ impl SapphireLedgerServer {
             let guard = self.lock_state();
             Ok(serde_json::to_string_pretty(&guard.workspace().accounts)?)
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(description = "Show one transaction, with all of its postings, by id.")]
@@ -335,7 +349,7 @@ impl SapphireLedgerServer {
                 .with_context(|| format!("no transaction with id {}", p.id))?;
             Ok(serde_json::to_string_pretty(found)?)
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -414,7 +428,7 @@ impl SapphireLedgerServer {
             });
             Ok(serde_json::to_string_pretty(&hits)?)
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -439,7 +453,7 @@ impl SapphireLedgerServer {
             hits.sort_by_key(|e| e.date);
             Ok(serde_json::to_string_pretty(&hits)?)
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -453,7 +467,7 @@ impl SapphireLedgerServer {
             guard.reload()?;
             Ok(serde_json::to_string_pretty(&guard.workspace().validate())?)
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -481,7 +495,7 @@ impl SapphireLedgerServer {
             self.notify_write(std::slice::from_ref(&dest));
             Ok(write_result("account", &id, &dest, reload_err))
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -523,7 +537,7 @@ impl SapphireLedgerServer {
             self.notify_write(std::slice::from_ref(&dest));
             Ok(write_result("transaction", &id, &dest, reload_err))
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -560,7 +574,7 @@ impl SapphireLedgerServer {
             self.notify_write(std::slice::from_ref(&dest));
             Ok(write_result("assertion", &id, &dest, reload_err))
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 
     #[tool(
@@ -580,7 +594,7 @@ impl SapphireLedgerServer {
             self.notify_write(std::slice::from_ref(&dest));
             Ok(write_result("price", &id, &dest, reload_err))
         })()
-        .map_err(|e| e.to_string())
+        .map_err(render_error)
     }
 }
 
@@ -1010,6 +1024,103 @@ currency = "JPY"
             seen.lock().unwrap().len(),
             1,
             "the observer must still fire even though reload() failed"
+        );
+    }
+
+    /// The operator is an AI that can only act on what the error text says.
+    /// `validate_workspace` is the tool it reaches for to diagnose a broken
+    /// ledger, and a parse error naming a line number in an unnamed file is
+    /// not actionable.
+    #[test]
+    fn validate_workspace_names_the_file_it_could_not_parse() {
+        let (dir, server) = test_server();
+
+        let broken = dir.path().join("transactions/2026/05/tx-broken.toml");
+        std::fs::create_dir_all(broken.parent().unwrap()).expect("mkdir");
+        std::fs::write(
+            &broken,
+            "this is not valid toml >>>>>>> HEAD
+",
+        )
+        .expect("write");
+
+        let err = server
+            .validate_workspace(Parameters(EmptyParams {}))
+            .expect_err("a malformed record must fail the reload");
+        assert!(
+            err.contains("tx-broken.toml"),
+            "the agent cannot fix a file it is not told about, got: {err}"
+        );
+        assert!(
+            err.contains("TOML parse error"),
+            "the reason must survive alongside the path, got: {err}"
+        );
+    }
+
+    /// A write refused because some *other* record is malformed has to name
+    /// that record too -- otherwise the agent is told its write was blocked
+    /// and has nothing to go on.
+    #[test]
+    fn a_blocked_write_names_the_file_that_blocked_it() {
+        let (dir, server) = test_server();
+        add_account(&server, "Expenses:Food", "Expense");
+        add_account(&server, "Assets:Cash", "Asset");
+
+        let broken = dir.path().join("transactions/2026/05/tx-broken.toml");
+        std::fs::create_dir_all(broken.parent().unwrap()).expect("mkdir");
+        std::fs::write(
+            &broken,
+            "this is not valid toml >>>>>>> HEAD
+",
+        )
+        .expect("write");
+
+        let err = server
+            .add_transaction(Parameters(AddTransactionParams {
+                date: "2026-05-21".into(),
+                narration: "blocked".into(),
+                payee: None,
+                tags: vec![],
+                status: None,
+                postings: vec![
+                    posting_param("Expenses:Food", "1200"),
+                    posting_param("Assets:Cash", "-1200"),
+                ],
+            }))
+            .expect_err("the pre-write reload must refuse the write");
+        assert!(
+            err.contains("tx-broken.toml"),
+            "the agent must be told which file blocked the write, got: {err}"
+        );
+    }
+
+    /// The post-write WARNING embeds the same error, and is subject to the
+    /// same requirement.
+    #[test]
+    fn the_post_write_warning_names_the_broken_file() {
+        let (dir, server, _seen) = test_server_with_observer();
+
+        let broken = dir.path().join("transactions/2026/05/tx-broken.toml");
+        std::fs::create_dir_all(broken.parent().unwrap()).expect("mkdir");
+        std::fs::write(
+            &broken,
+            "this is not valid toml >>>>>>> HEAD
+",
+        )
+        .expect("write");
+
+        let result = server
+            .add_price(Parameters(AddPriceParams {
+                date: "2026-05-21".into(),
+                base: "USD".into(),
+                quote: "JPY".into(),
+                rate: "150".into(),
+                source: None,
+            }))
+            .expect("the write itself succeeded");
+        assert!(
+            result.contains("tx-broken.toml"),
+            "the WARNING must name the file that broke the reload, got: {result}"
         );
     }
 }
