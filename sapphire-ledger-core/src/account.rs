@@ -87,12 +87,14 @@ pub fn resolve_account<'a>(
     by_name: &HashMap<&str, &'a Account>,
 ) -> Result<&'a Account> {
     match (id, name) {
-        (Some(id), _) => by_id.get(id).copied().ok_or_else(|| {
-            Error::Validation(format!("undefined account id {id}"))
-        }),
-        (None, Some(name)) => by_name.get(name).copied().ok_or_else(|| {
-            Error::Validation(format!("undefined account {name}"))
-        }),
+        (Some(id), _) => by_id
+            .get(id)
+            .copied()
+            .ok_or_else(|| Error::Validation(format!("undefined account id {id}"))),
+        (None, Some(name)) => by_name
+            .get(name)
+            .copied()
+            .ok_or_else(|| Error::Validation(format!("undefined account {name}"))),
         (None, None) => Err(Error::Validation(
             "posting or assertion has no account reference".into(),
         )),

@@ -1,4 +1,6 @@
-use sapphire_ledger_core::{init_workspace, load_workspace, price_relative_path, save_toml, PriceEntry};
+use sapphire_ledger_core::{
+    PriceEntry, init_workspace, load_workspace, price_relative_path, save_toml,
+};
 
 #[test]
 fn init_creates_the_prices_directory() {
@@ -31,7 +33,11 @@ fn load_workspace_reads_price_entries() {
         created_at: "2026-05-21T18:30:00+09:00".parse().unwrap(),
         updated_at: "2026-05-21T18:30:00+09:00".parse().unwrap(),
     };
-    save_toml(&dir.path().join(price_relative_path(entry.date, &entry.id)), &entry).expect("save");
+    save_toml(
+        &dir.path().join(price_relative_path(entry.date, &entry.id)),
+        &entry,
+    )
+    .expect("save");
 
     let ws = load_workspace(dir.path()).expect("load");
     assert_eq!(ws.prices.len(), 1);

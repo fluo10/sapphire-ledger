@@ -286,7 +286,10 @@ currency = "JPY"
 
     let issues = load_workspace(&root).unwrap().validate();
     assert_eq!(issues.len(), 2);
-    let ids: Vec<&str> = issues.iter().filter_map(|i| i.transaction_id.as_deref()).collect();
+    let ids: Vec<&str> = issues
+        .iter()
+        .filter_map(|i| i.transaction_id.as_deref())
+        .collect();
     assert!(ids.contains(&"a"));
     assert!(ids.contains(&"b"));
     fs::remove_dir_all(&root).unwrap();

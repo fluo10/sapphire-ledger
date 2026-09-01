@@ -54,9 +54,12 @@ pub fn account_relative_path(name: &str) -> Result<PathBuf> {
 /// workspace root (e.g. `accounts/Assets/Cash/USD.toml`), reconstruct the
 /// account name `"Assets:Cash:USD"`.
 pub fn account_name_from_relative_path(rel: &Path) -> Result<String> {
-    let stripped = rel
-        .strip_prefix(ACCOUNTS_DIR)
-        .map_err(|_| Error::Validation(format!("path is not under {ACCOUNTS_DIR}/: {}", rel.display())))?;
+    let stripped = rel.strip_prefix(ACCOUNTS_DIR).map_err(|_| {
+        Error::Validation(format!(
+            "path is not under {ACCOUNTS_DIR}/: {}",
+            rel.display()
+        ))
+    })?;
     let mut segments: Vec<String> = Vec::new();
     let components: Vec<_> = stripped.components().collect();
     if components.is_empty() {

@@ -37,9 +37,11 @@ fn transaction(postings: Vec<Posting>) -> Transaction {
     }
 }
 
-fn workspace(accounts: Vec<Account>, transactions: Vec<Transaction>, assertions: Vec<Assertion>)
-    -> sapphire_ledger_core::Workspace
-{
+fn workspace(
+    accounts: Vec<Account>,
+    transactions: Vec<Transaction>,
+    assertions: Vec<Assertion>,
+) -> sapphire_ledger_core::Workspace {
     sapphire_ledger_core::Workspace {
         root: std::path::PathBuf::from("/nonexistent"),
         config: sapphire_ledger_core::Config {
@@ -96,7 +98,9 @@ fn a_posting_with_neither_reference_is_an_error() {
     );
     let issues = ws.validate();
     assert!(
-        issues.iter().any(|i| i.message.contains("no account reference")),
+        issues
+            .iter()
+            .any(|i| i.message.contains("no account reference")),
         "{issues:?}"
     );
 }
@@ -113,7 +117,9 @@ fn an_unknown_account_id_is_an_error() {
     );
     let issues = ws.validate();
     assert!(
-        issues.iter().any(|i| i.message.contains("undefined account")),
+        issues
+            .iter()
+            .any(|i| i.message.contains("undefined account")),
         "an id that resolves to nothing must fail even when the name would have \
          resolved -- the id is authoritative: {issues:?}"
     );
@@ -122,13 +128,18 @@ fn an_unknown_account_id_is_an_error() {
 #[test]
 fn duplicate_account_ids_are_an_error() {
     let ws = workspace(
-        vec![account("acct001", "Expenses:Food"), account("acct001", "Expenses:Other")],
+        vec![
+            account("acct001", "Expenses:Food"),
+            account("acct001", "Expenses:Other"),
+        ],
         vec![],
         vec![],
     );
     let issues = ws.validate();
     assert!(
-        issues.iter().any(|i| i.message.contains("duplicate account id")),
+        issues
+            .iter()
+            .any(|i| i.message.contains("duplicate account id")),
         "a rename racing under sync can put one id at two paths: {issues:?}"
     );
 }
@@ -143,7 +154,10 @@ fn an_assertion_resolves_by_id_too() {
             account_id: Some("acct001".into()),
             account_name: Some("Assets:Old:Name".into()),
             date: "2026-05-31".parse().unwrap(),
-            balances: vec![Balance { amount: "5000".parse().unwrap(), currency: "JPY".into() }],
+            balances: vec![Balance {
+                amount: "5000".parse().unwrap(),
+                currency: "JPY".into(),
+            }],
             created_at: "2026-05-31T23:59:00+09:00".parse().unwrap(),
             updated_at: "2026-05-31T23:59:00+09:00".parse().unwrap(),
         }],

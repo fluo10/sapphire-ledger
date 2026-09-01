@@ -11,7 +11,8 @@ use crate::error::Result;
 use crate::prices::PriceEntry;
 use crate::transaction::Transaction;
 use crate::workspace::{
-    ACCOUNTS_DIR, ASSERTIONS_DIR, CONFIG_FILE, PRICES_DIR, TOML_EXTENSION, TRANSACTIONS_DIR, WORKSPACE_DIR,
+    ACCOUNTS_DIR, ASSERTIONS_DIR, CONFIG_FILE, PRICES_DIR, TOML_EXTENSION, TRANSACTIONS_DIR,
+    WORKSPACE_DIR,
 };
 
 /// Read a TOML file and deserialize it into `T`.
