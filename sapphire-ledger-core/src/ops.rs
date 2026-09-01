@@ -44,10 +44,11 @@ use crate::workspace::{
 
 /// How many times to re-mint an id when the destination is already taken.
 ///
-/// For time-ordered ids a collision means "another record was created in this
-/// same tenth of a second"; re-minting after the clock advances is enough. For
-/// an account's random id a collision is astronomically unlikely but must
-/// still terminate.
+/// `new_id()` is deterministic within a decisecond, so re-calling it on a
+/// collision would mint the same id forever; [`mint_free_id`] falls back to
+/// `new_random_id()` after the first attempt to actually break the tie. An
+/// account's random id colliding with an existing one is astronomically
+/// unlikely, but the retry must still terminate.
 const ID_ATTEMPTS: usize = 32;
 
 fn now() -> DateTime<FixedOffset> {
@@ -73,13 +74,25 @@ fn load_accounts(root: &Path) -> Result<Vec<Account>> {
         .collect()
 }
 
-/// Mint a time-ordered id whose destination file does not exist yet.
+/// Mint an id whose destination file does not exist yet.
+///
+/// Uniqueness is the hard requirement; time-ordering is an ergonomic nicety
+/// on top of it. So the first attempt uses the time-ordered generator, which
+/// is what a record written on its own gets. `new_id()` has decisecond
+/// resolution and no random component, so it is deterministic within that
+/// window: a collision means another record landed in this same decisecond,
+/// and re-calling it would mint the identical id forever. Only a different
+/// generator can break that tie, so every attempt after the first is random.
 fn mint_free_id<F>(root: &Path, relative: F) -> Result<(String, PathBuf)>
 where
     F: Fn(&str) -> PathBuf,
 {
-    for _ in 0..ID_ATTEMPTS {
-        let id = new_id();
+    for attempt in 0..ID_ATTEMPTS {
+        let id = if attempt == 0 {
+            new_id()
+        } else {
+            new_random_id()
+        };
         let dest = root.join(relative(&id));
         if !dest.exists() {
             return Ok((id, dest));
@@ -108,6 +121,14 @@ fn resolve_postings(postings: Vec<Posting>, accounts: &[Account]) -> Result<Vec<
                 &by_id,
                 &by_name,
             )?;
+            if !account.allows_currency(&p.currency) {
+                return Err(Error::Validation(format!(
+                    "posts {} to {}, but that account only allows {}",
+                    p.currency,
+                    account.name,
+                    account.currencies.join(", "),
+                )));
+            }
             Ok(Posting {
                 account_id: Some(account.id.clone()),
                 account_name: Some(account.name.clone()),
@@ -134,8 +155,7 @@ pub fn create_account(
     refuse_existing(&dest)?;
 
     let existing = load_accounts(root)?;
-    let taken: std::collections::HashSet<&str> =
-        existing.iter().map(|a| a.id.as_str()).collect();
+    let taken: std::collections::HashSet<&str> = existing.iter().map(|a| a.id.as_str()).collect();
 
     let id = (0..ID_ATTEMPTS)
         .map(|_| new_random_id())
@@ -212,6 +232,16 @@ pub fn create_assertion(
         &by_id,
         &by_name,
     )?;
+    for balance in &balances {
+        if !account.allows_currency(&balance.currency) {
+            return Err(Error::Validation(format!(
+                "asserts {} balance for {}, but that account only allows {}",
+                balance.currency,
+                account.name,
+                account.currencies.join(", "),
+            )));
+        }
+    }
 
     let (id, dest) = mint_free_id(root, |id| assertion_relative_path(date, id))?;
     let timestamp = now();
@@ -278,6 +308,9 @@ mod tests {
         let leads: HashSet<char> = (0..200)
             .filter_map(|_| new_random_id().chars().next())
             .collect();
-        assert!(leads.len() > 1, "random ids all began with the same character");
+        assert!(
+            leads.len() > 1,
+            "random ids all began with the same character"
+        );
     }
 }

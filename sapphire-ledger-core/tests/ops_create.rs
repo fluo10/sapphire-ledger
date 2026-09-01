@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use sapphire_ledger_core::{ops, AccountType, Balance, Posting};
+use sapphire_ledger_core::{AccountType, Balance, Posting, ops};
 
 fn ws() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -44,7 +44,11 @@ fn create_account_writes_the_hierarchical_path_and_mints_an_id() {
     )
     .expect("create");
     assert_eq!(id.chars().count(), 7);
-    assert!(dest.ends_with("accounts/Assets/Cash/JPY.toml"), "got {}", dest.display());
+    assert!(
+        dest.ends_with("accounts/Assets/Cash/JPY.toml"),
+        "got {}",
+        dest.display()
+    );
     assert!(std::fs::read_to_string(&dest).unwrap().contains(&id));
 }
 
@@ -92,11 +96,18 @@ fn create_transaction_resolves_names_to_ids_on_disk() {
         Some("イオン".into()),
         vec!["grocery".into()],
         None,
-        vec![posting_by_name("Expenses:Food", "1200"), posting_by_name("Assets:Cash:JPY", "-1200")],
+        vec![
+            posting_by_name("Expenses:Food", "1200"),
+            posting_by_name("Assets:Cash:JPY", "-1200"),
+        ],
     )
     .expect("create");
 
-    assert!(dest.ends_with(format!("transactions/2026/05/{id}.toml")), "got {}", dest.display());
+    assert!(
+        dest.ends_with(format!("transactions/2026/05/{id}.toml")),
+        "got {}",
+        dest.display()
+    );
     let written = std::fs::read_to_string(&dest).expect("read");
     assert!(
         written.contains(&format!("account_id = \"{food}\"")),
@@ -116,7 +127,10 @@ fn create_transaction_rejects_an_unknown_account() {
         None,
         vec![],
         None,
-        vec![posting_by_name("Expenses:Nowhere", "1200"), posting_by_name("Assets:Cash:JPY", "-1200")],
+        vec![
+            posting_by_name("Expenses:Nowhere", "1200"),
+            posting_by_name("Assets:Cash:JPY", "-1200"),
+        ],
     )
     .expect_err("must reject");
     assert!(err.to_string().contains("undefined account"), "got: {err}");
@@ -135,7 +149,10 @@ fn create_transaction_rejects_an_unbalanced_entry_and_writes_nothing() {
         None,
         vec![],
         None,
-        vec![posting_by_name("Expenses:Food", "1200"), posting_by_name("Assets:Cash:JPY", "-999")],
+        vec![
+            posting_by_name("Expenses:Food", "1200"),
+            posting_by_name("Assets:Cash:JPY", "-999"),
+        ],
     )
     .expect_err("must reject");
     assert!(err.to_string().contains("does not balance"), "got: {err}");
@@ -158,10 +175,17 @@ fn create_assertion_and_price_produce_dated_paths() {
         Some(cash),
         None,
         "2026-05-31".parse().unwrap(),
-        vec![Balance { amount: "5000".parse().unwrap(), currency: "JPY".into() }],
+        vec![Balance {
+            amount: "5000".parse().unwrap(),
+            currency: "JPY".into(),
+        }],
     )
     .expect("assertion");
-    assert!(apath.ends_with(format!("assertions/2026/05/{aid}.toml")), "got {}", apath.display());
+    assert!(
+        apath.ends_with(format!("assertions/2026/05/{aid}.toml")),
+        "got {}",
+        apath.display()
+    );
 
     let (pid, ppath) = ops::create_price(
         dir.path(),
@@ -172,7 +196,11 @@ fn create_assertion_and_price_produce_dated_paths() {
         Some("manual".into()),
     )
     .expect("price");
-    assert!(ppath.ends_with(format!("prices/2026/05/{pid}.toml")), "got {}", ppath.display());
+    assert!(
+        ppath.ends_with(format!("prices/2026/05/{pid}.toml")),
+        "got {}",
+        ppath.display()
+    );
 }
 
 #[test]
@@ -187,12 +215,123 @@ fn created_records_reload_and_validate_clean() {
         None,
         vec![],
         None,
-        vec![posting_by_name("Expenses:Food", "1200"), posting_by_name("Assets:Cash:JPY", "-1200")],
+        vec![
+            posting_by_name("Expenses:Food", "1200"),
+            posting_by_name("Assets:Cash:JPY", "-1200"),
+        ],
     )
     .expect("create");
 
     let loaded = sapphire_ledger_core::load_workspace(dir.path()).expect("load");
     assert_eq!(loaded.accounts.len(), 2);
     assert_eq!(loaded.transactions.len(), 1);
-    assert!(loaded.validate().is_empty(), "issues: {:?}", loaded.validate());
+    assert!(
+        loaded.validate().is_empty(),
+        "issues: {:?}",
+        loaded.validate()
+    );
+}
+
+#[test]
+fn create_transaction_twice_in_the_same_decisecond_mints_distinct_ids() {
+    let dir = ws();
+    add_account(dir.path(), "Expenses:Food", AccountType::Expense);
+    add_account(dir.path(), "Assets:Cash:JPY", AccountType::Asset);
+
+    let (id_a, _) = ops::create_transaction(
+        dir.path(),
+        "2026-05-21".parse().unwrap(),
+        "first".into(),
+        None,
+        vec![],
+        None,
+        vec![
+            posting_by_name("Expenses:Food", "1200"),
+            posting_by_name("Assets:Cash:JPY", "-1200"),
+        ],
+    )
+    .expect("create first");
+
+    let (id_b, _) = ops::create_transaction(
+        dir.path(),
+        "2026-05-21".parse().unwrap(),
+        "second".into(),
+        None,
+        vec![],
+        None,
+        vec![
+            posting_by_name("Expenses:Food", "500"),
+            posting_by_name("Assets:Cash:JPY", "-500"),
+        ],
+    )
+    .expect("create second");
+
+    assert_ne!(
+        id_a, id_b,
+        "two records minted back to back must not collide"
+    );
+}
+
+#[test]
+fn create_transaction_rejects_a_currency_the_account_does_not_allow() {
+    let dir = ws();
+    ops::create_account(
+        dir.path(),
+        "Assets:Cash:JPY".into(),
+        AccountType::Asset,
+        vec!["JPY".into()],
+        "2026-01-01".parse().unwrap(),
+        None,
+    )
+    .expect("create_account");
+    add_account(dir.path(), "Expenses:Food", AccountType::Expense);
+
+    let err = ops::create_transaction(
+        dir.path(),
+        "2026-05-21".parse().unwrap(),
+        "wrong currency".into(),
+        None,
+        vec![],
+        None,
+        vec![
+            Posting {
+                account_id: None,
+                account_name: Some("Assets:Cash:JPY".into()),
+                amount: "-1000".parse().unwrap(),
+                currency: "USD".into(),
+                price: None,
+                memo: None,
+            },
+            posting_by_name("Expenses:Food", "1000"),
+        ],
+    )
+    .expect_err("must reject");
+    assert!(err.to_string().contains("only allows"), "got: {err}");
+}
+
+#[test]
+fn create_assertion_rejects_a_currency_the_account_does_not_allow() {
+    let dir = ws();
+    ops::create_account(
+        dir.path(),
+        "Assets:Cash:JPY".into(),
+        AccountType::Asset,
+        vec!["JPY".into()],
+        "2026-01-01".parse().unwrap(),
+        None,
+    )
+    .expect("create_account");
+
+    let err = ops::create_assertion(
+        dir.path(),
+        None,
+        Some("Assets:Cash:JPY".into()),
+        "2026-05-31".parse().unwrap(),
+        vec![Balance {
+            amount: "100".parse().unwrap(),
+            currency: "USD".into(),
+        }],
+    )
+    .expect_err("must reject");
+    assert!(err.to_string().contains("only allows"), "got: {err}");
 }
