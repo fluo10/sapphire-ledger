@@ -320,8 +320,16 @@ short-circuits — the user gets every issue in one pass. Issues currently
 detected:
 
 - Two accounts share an `id` (a rename that raced under sync).
+- Two accounts share a `name`. A name-only posting would otherwise resolve
+  to whichever of them won the lookup table.
+- Two transactions, two assertions or two price entries share an `id`. Ids
+  are unique per record kind, not per `{year}/{MM}/` directory; a record
+  whose date was corrected moves between directories, and that move is a
+  delete-plus-add that can race under sync.
 - Transaction fails per-record validation (balance, posting count).
 - Posting references an account that doesn't exist in `accounts/`.
+- Posting or assertion carries no account reference at all (neither
+  `account_id` nor `account_name`).
 - Posting currency violates the account's `currencies` constraint.
 - Assertion references an undefined account.
 - Assertion balance currency violates the account's `currencies`
