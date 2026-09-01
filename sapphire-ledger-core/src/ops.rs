@@ -25,7 +25,7 @@ pub fn new_random_id() -> String {
     GrainId::random().to_string()
 }
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate};
@@ -38,8 +38,8 @@ use crate::prices::PriceEntry;
 use crate::repository::{load_toml, save_toml, walk_toml_files};
 use crate::transaction::{Posting, Transaction, TransactionStatus};
 use crate::workspace::{
-    ACCOUNTS_DIR, account_relative_path, assertion_relative_path, price_relative_path,
-    transaction_relative_path,
+    ACCOUNTS_DIR, ASSERTIONS_DIR, PRICES_DIR, TRANSACTIONS_DIR, account_relative_path,
+    assertion_relative_path, price_relative_path, transaction_relative_path,
 };
 
 /// How many times to re-mint an id when the destination is already taken.
@@ -74,26 +74,42 @@ fn load_accounts(root: &Path) -> Result<Vec<Account>> {
         .collect()
 }
 
-/// Mint an id whose destination file does not exist yet.
+/// Mint an id that no record of this kind is already using.
 ///
-/// Uniqueness is the hard requirement; time-ordering is an ergonomic nicety
-/// on top of it. So the first attempt uses the time-ordered generator, which
-/// is what a record written on its own gets. `new_id()` has decisecond
-/// resolution and no random component, so it is deterministic within that
-/// window: a collision means another record landed in this same decisecond,
-/// and re-calling it would mint the identical id forever. Only a different
-/// generator can break that tie, so every attempt after the first is random.
-fn mint_free_id<F>(root: &Path, relative: F) -> Result<(String, PathBuf)>
+/// Uniqueness is scoped to the **record kind**, not to one `{year}/{MM}/`
+/// directory. The destination path embeds the record's own date, so checking
+/// only whether `dest` exists would let two records minted inside the same
+/// decisecond with dates in different months take the same id — their paths
+/// differ, so neither collision check would fire. `kind_dir` is walked to
+/// collect every id already taken across the kind.
+///
+/// Time-ordering is an ergonomic nicety on top of uniqueness, so the first
+/// attempt uses the time-ordered generator, which is what a record written on
+/// its own gets. `new_id()` has decisecond resolution and no random component,
+/// so it is deterministic within that window: a collision means another record
+/// of this kind was minted in this same decisecond, and re-calling it would
+/// mint the identical id forever. Only a different generator can break that
+/// tie, so every attempt after the first is random.
+fn mint_free_id<F>(root: &Path, kind_dir: &str, relative: F) -> Result<(String, PathBuf)>
 where
     F: Fn(&str) -> PathBuf,
 {
+    let taken: HashSet<String> = walk_toml_files(&root.join(kind_dir))?
+        .iter()
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
+        .collect();
+
     for attempt in 0..ID_ATTEMPTS {
         let id = if attempt == 0 {
             new_id()
         } else {
             new_random_id()
         };
+        if taken.contains(&id) {
+            continue;
+        }
         let dest = root.join(relative(&id));
+        // The walk above is a snapshot; still refuse an existing destination.
         if !dest.exists() {
             return Ok((id, dest));
         }
@@ -192,7 +208,9 @@ pub fn create_transaction(
     let accounts = load_accounts(root)?;
     let postings = resolve_postings(postings, &accounts)?;
 
-    let (id, dest) = mint_free_id(root, |id| transaction_relative_path(date, id))?;
+    let (id, dest) = mint_free_id(root, TRANSACTIONS_DIR, |id| {
+        transaction_relative_path(date, id)
+    })?;
     let timestamp = now();
     let transaction = Transaction {
         id: id.clone(),
@@ -243,7 +261,7 @@ pub fn create_assertion(
         }
     }
 
-    let (id, dest) = mint_free_id(root, |id| assertion_relative_path(date, id))?;
+    let (id, dest) = mint_free_id(root, ASSERTIONS_DIR, |id| assertion_relative_path(date, id))?;
     let timestamp = now();
     let assertion = Assertion {
         id: id.clone(),
@@ -272,7 +290,7 @@ pub fn create_price(
             "price base and quote are both {base}"
         )));
     }
-    let (id, dest) = mint_free_id(root, |id| price_relative_path(date, id))?;
+    let (id, dest) = mint_free_id(root, PRICES_DIR, |id| price_relative_path(date, id))?;
     let timestamp = now();
     let entry = PriceEntry {
         id: id.clone(),
@@ -297,6 +315,49 @@ mod tests {
     fn both_generators_produce_seven_chars() {
         assert_eq!(new_id().chars().count(), 7);
         assert_eq!(new_random_id().chars().count(), 7);
+    }
+
+    /// `mint_free_id` scopes uniqueness to the kind, not to a month directory.
+    ///
+    /// A record dated in May takes an id; a record minted in the same
+    /// decisecond but dated in June asks `new_id()` for the *same* string,
+    /// and its destination path is in a different directory — so only a
+    /// kind-wide check can catch it.
+    ///
+    /// The clock is not controllable, so the round is bracketed with
+    /// `new_id()` and only asserted on when it provably stayed inside one
+    /// decisecond.
+    #[test]
+    fn mint_free_id_will_not_reuse_an_id_from_another_month() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let may: NaiveDate = "2026-05-21".parse().unwrap();
+        let june: NaiveDate = "2026-06-03".parse().unwrap();
+
+        let mut sampled = 0usize;
+        for round in 0..40 {
+            let before = new_id();
+            let occupied = root.join(transaction_relative_path(may, &before));
+            std::fs::create_dir_all(occupied.parent().unwrap()).unwrap();
+            std::fs::write(&occupied, "").unwrap();
+
+            let (minted, _) = mint_free_id(root, TRANSACTIONS_DIR, |id| {
+                transaction_relative_path(june, id)
+            })
+            .expect("mint");
+            let after = new_id();
+            if before == after {
+                sampled += 1;
+                assert_ne!(
+                    minted, before,
+                    "minted an id already taken by a record in another month (round {round})"
+                );
+            }
+        }
+        assert!(
+            sampled > 0,
+            "no round stayed inside one decisecond; the collision window was never exercised"
+        );
     }
 
     #[test]

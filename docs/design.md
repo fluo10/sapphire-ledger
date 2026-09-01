@@ -87,8 +87,13 @@ survives being moved or copied.
 Ids come from [`grain-id`](https://crates.io/crates/grain-id). Records whose id
 is their filename — transactions, assertions, prices — mint with
 `GrainId::now_unix()` on the first attempt, whose decisecond resolution makes a
-`{year}/{MM}/` listing time-ordered. A collision means another record landed in
-the same decisecond; `now_unix()` is a pure function of that decisecond, so
+`{year}/{MM}/` listing time-ordered. Uniqueness is checked across the whole
+record kind — every id already in use under `transactions/`, `assertions/` or
+`prices/` — not merely against the destination path: two records minted in one
+decisecond but dated in different months land in different `{year}/{MM}/`
+directories, so a per-path check alone would let both keep the same id. A
+collision therefore means another record of the same kind was minted in the
+same decisecond; `now_unix()` is a pure function of that decisecond, so
 re-minting it would return the same id forever, and `core::ops` mints
 `GrainId::random()` on every retry instead. Uniqueness is the hard requirement
 and ordering is the nicety, so ordering is what gives way — and inside a burst

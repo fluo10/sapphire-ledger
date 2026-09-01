@@ -127,8 +127,13 @@ The distinction is deliberate:
   collision returns the *same* id; a retry loop over it cannot terminate, and
   sleeping to cross a decisecond boundary would cost 100 ms per record. So
   `core::ops` mints time-ordered on the first attempt and **random** on every
-  retry. A collision means another record landed in this same decisecond,
-  where time-ordering is unobtainable anyway; uniqueness is the hard
+  retry. Uniqueness is checked across the whole record kind — every id
+  already in use under `transactions/`, `assertions/` or `prices/` — and not
+  merely against the destination path: two records minted in one decisecond
+  but dated in different months land in different `{year}/{MM}/` directories,
+  so a per-path check would let both keep that id. A collision therefore means
+  another record of the same kind was minted in this same decisecond, where
+  time-ordering is unobtainable anyway; uniqueness is the hard
   requirement and ordering is the nicety, so ordering is what gives way. The
   `date` field inside each record remains the real ordering key.
 - Accounts are named by their account name (`accounts/Assets/Cash/JPY.toml`),

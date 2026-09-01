@@ -335,3 +335,67 @@ fn create_assertion_rejects_a_currency_the_account_does_not_allow() {
     .expect_err("must reject");
     assert!(err.to_string().contains("only allows"), "got: {err}");
 }
+
+/// Ids must be unique per *record kind*, not per month directory.
+///
+/// `new_id()` is a pure function of the current decisecond, so two records
+/// minted inside one decisecond ask for the same id. When their dates fall in
+/// different months their destination paths differ, so a per-path collision
+/// check sees nothing and both writes land with the same id.
+///
+/// The clock is not controllable, so each round brackets its two writes with
+/// `new_id()` and only asserts on rounds that provably stayed inside one
+/// decisecond. That makes the test deterministic rather than timing-dependent.
+#[test]
+fn transactions_dated_in_different_months_never_share_an_id() {
+    let dir = ws();
+    add_account(dir.path(), "Expenses:Food", AccountType::Expense);
+    add_account(dir.path(), "Assets:Cash:JPY", AccountType::Asset);
+
+    let mut sampled = 0usize;
+    for round in 0..40 {
+        let before = ops::new_id();
+        let (id_may, _) = ops::create_transaction(
+            dir.path(),
+            "2026-05-21".parse().unwrap(),
+            format!("may {round}"),
+            None,
+            vec![],
+            None,
+            vec![
+                posting_by_name("Expenses:Food", "1200"),
+                posting_by_name("Assets:Cash:JPY", "-1200"),
+            ],
+        )
+        .expect("create may");
+        let (id_june, _) = ops::create_transaction(
+            dir.path(),
+            "2026-06-03".parse().unwrap(),
+            format!("june {round}"),
+            None,
+            vec![],
+            None,
+            vec![
+                posting_by_name("Expenses:Food", "500"),
+                posting_by_name("Assets:Cash:JPY", "-500"),
+            ],
+        )
+        .expect("create june");
+        let after = ops::new_id();
+
+        // Both writes provably happened inside a single decisecond, so both
+        // first attempts asked `new_id()` for the same string.
+        if before == after {
+            sampled += 1;
+            assert_ne!(
+                id_may, id_june,
+                "two transactions minted in one decisecond took the same id \
+                 because their months differ (round {round})"
+            );
+        }
+    }
+    assert!(
+        sampled > 0,
+        "no round stayed inside one decisecond; the test never exercised the collision window"
+    );
+}
