@@ -39,13 +39,23 @@ concrete:
   mtime tracking (`sapphire-framework-track`) and search
   (`sapphire-framework-retrieve`) directly. That is most of what issue #1
   wanted a cache for.
-- Ledger must take `grain-id` for id generation. Current `grain-id` requires
-  `rusqlite 0.40.2` behind an optional feature, and Cargo resolves
-  feature-disabled optional dependencies for version selection and for
-  `links = "sqlite3"` uniqueness. Ledger's workspace manifest still declares an
-  unused `rusqlite = "0.39"` (`Cargo.toml:23`) whose `libsqlite3-sys` major
-  differs. **No member crate references it** — it is a dead declaration, and it
-  has to go before grain-id lands regardless of whether a cache is ever built.
+- Ledger's workspace manifest declared an unused `rusqlite = "0.39"`
+  (`Cargo.toml:23`) that **no member crate referenced**. A
+  `[workspace.dependencies]` entry nothing consumes never enters the resolution
+  graph, so it was inert rather than dangerous — dead weight to delete, not a
+  hazard to defuse. (An earlier draft of this spec claimed it would collide with
+  `grain-id`'s optional rusqlite via `links = "sqlite3"`. That was wrong on the
+  facts: `grain-id` carries no `links` key of its own, and with its `rusqlite`
+  feature off — which is how ledger takes it — neither `rusqlite` nor
+  `libsqlite3-sys` appears in ledger's `Cargo.lock` at all. Verified against the
+  lockfile after the framework dependency landed.)
+
+  The real constraint is narrower and still worth stating: `libsqlite3-sys`
+  carries `links = "sqlite3"`, and two majors of it in one graph is a hard build
+  failure. That is what bit `sapphire-framework`. It binds ledger only if
+  something here enables `grain-id`'s `rusqlite` feature or adds rusqlite
+  directly while another dependency pulls a different major. Today nothing does,
+  and nothing should need to.
 
 So: drop the pin, take the framework's `track` and `retrieve`, and defer any
 ledger-specific index until walking is measurably slow.
