@@ -131,6 +131,7 @@ fn load_workspace_reads_records() {
     fs::write(
         root.join("accounts/Assets/Cash/JPY.toml"),
         r#"
+id = "acct001"
 name = "Assets:Cash:JPY"
 type = "Asset"
 opened_at = "2026-05-21"
@@ -142,6 +143,7 @@ opened_at = "2026-05-21"
     fs::write(
         root.join("accounts/Expenses/Food.toml"),
         r#"
+id = "acct002"
 name = "Expenses:Food"
 type = "Expense"
 opened_at = "2026-05-21"
@@ -160,12 +162,12 @@ created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "1000"
 currency = "JPY"
 
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-1000"
 currency = "JPY"
 "#,

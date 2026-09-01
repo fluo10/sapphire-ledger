@@ -22,18 +22,18 @@ created_at = "2026-05-21T18:30:00+09:00"
 updated_at = "2026-05-21T18:30:00+09:00"
 
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "1200"
 currency = "JPY"
 
 [[postings]]
-account = "Expenses:Daily"
+account_name = "Expenses:Daily"
 amount = "800"
 currency = "JPY"
 memo = "洗剤"
 
 [[postings]]
-account = "Liabilities:CreditCard:Rakuten"
+account_name = "Liabilities:CreditCard:Rakuten"
 amount = "-2000"
 currency = "JPY"
 "#;
@@ -62,13 +62,13 @@ created_at = "2026-05-21T10:00:00+09:00"
 updated_at = "2026-05-21T10:00:00+09:00"
 
 [[postings]]
-account = "Assets:Cash:USD"
+account_name = "Assets:Cash:USD"
 amount = "100"
 currency = "USD"
 price = { value = "150", currency = "JPY" }
 
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-15000"
 currency = "JPY"
 "#;
@@ -86,12 +86,12 @@ created_at = "2026-05-21T10:00:00+09:00"
 updated_at = "2026-05-21T10:00:00+09:00"
 
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "1200"
 currency = "JPY"
 
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-1000"
 currency = "JPY"
 "#;
@@ -109,7 +109,7 @@ created_at = "2026-05-21T10:00:00+09:00"
 updated_at = "2026-05-21T10:00:00+09:00"
 
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "0"
 currency = "JPY"
 "#;
@@ -120,6 +120,7 @@ currency = "JPY"
 #[test]
 fn account_roundtrip() {
     let input = r#"
+id = "acct001"
 name = "Assets:Cash:USD"
 type = "Asset"
 currencies = ["USD"]
@@ -139,6 +140,7 @@ description = "ドル現金"
 #[test]
 fn account_allows_any_currency_when_unspecified() {
     let input = r#"
+id = "acct002"
 name = "Equity:OpeningBalances"
 type = "Equity"
 opened_at = "2026-05-21"
@@ -153,7 +155,8 @@ opened_at = "2026-05-21"
 fn assertion_roundtrip_multi_currency() {
     let input = r#"
 id = "as0001"
-account = "Assets:Brokerage"
+account_id = "acct003"
+account_name = "Assets:Brokerage"
 date = "2026-05-31"
 created_at = "2026-05-31T23:59:00+09:00"
 updated_at = "2026-05-31T23:59:00+09:00"

@@ -44,6 +44,7 @@ pub fn account_name_segments(name: &str) -> Result<Vec<&str>> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
+    pub id: String,
     pub name: String,
     #[serde(rename = "type")]
     pub account_type: AccountType,
@@ -59,5 +60,41 @@ pub struct Account {
 impl Account {
     pub fn allows_currency(&self, currency: &str) -> bool {
         self.currencies.is_empty() || self.currencies.iter().any(|c| c == currency)
+    }
+}
+
+use std::collections::HashMap;
+
+/// Render an account reference for an error message, whichever half was given.
+pub fn describe_ref(id: Option<&str>, name: Option<&str>) -> String {
+    match (id, name) {
+        (Some(id), Some(name)) => format!("{name} ({id})"),
+        (Some(id), None) => id.to_string(),
+        (None, Some(name)) => name.to_string(),
+        (None, None) => "<no account reference>".to_string(),
+    }
+}
+
+/// Resolve an account reference.
+///
+/// The id is authoritative: when it is present the name is not consulted at
+/// all, which is what lets a rename leave old records alone. A name-only
+/// reference is resolved by name, so hand-written TOML stays valid.
+pub fn resolve_account<'a>(
+    id: Option<&str>,
+    name: Option<&str>,
+    by_id: &HashMap<&str, &'a Account>,
+    by_name: &HashMap<&str, &'a Account>,
+) -> Result<&'a Account> {
+    match (id, name) {
+        (Some(id), _) => by_id.get(id).copied().ok_or_else(|| {
+            Error::Validation(format!("undefined account id {id}"))
+        }),
+        (None, Some(name)) => by_name.get(name).copied().ok_or_else(|| {
+            Error::Validation(format!("undefined account {name}"))
+        }),
+        (None, None) => Err(Error::Validation(
+            "posting or assertion has no account reference".into(),
+        )),
     }
 }

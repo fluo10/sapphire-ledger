@@ -31,6 +31,7 @@ fn write_assertion(root: &std::path::Path, rel: &str, body: &str) {
 }
 
 const ACCOUNT_CASH_JPY: &str = r#"
+id = "acct001"
 name = "Assets:Cash:JPY"
 type = "Asset"
 currencies = ["JPY"]
@@ -38,6 +39,7 @@ opened_at = "2026-05-21"
 "#;
 
 const ACCOUNT_FOOD: &str = r#"
+id = "acct002"
 name = "Expenses:Food"
 type = "Expense"
 opened_at = "2026-05-21"
@@ -59,11 +61,11 @@ narration = "lunch"
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "1000"
 currency = "JPY"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-1000"
 currency = "JPY"
 "#,
@@ -89,11 +91,11 @@ narration = "typo"
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Expenses:Foood"
+account_name = "Expenses:Foood"
 amount = "1000"
 currency = "JPY"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-1000"
 currency = "JPY"
 "#,
@@ -123,11 +125,11 @@ narration = "wrong currency"
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "10"
 currency = "USD"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-10"
 currency = "USD"
 "#,
@@ -158,11 +160,11 @@ narration = "off by one"
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Expenses:Food"
+account_name = "Expenses:Food"
 amount = "1000"
 currency = "JPY"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-999"
 currency = "JPY"
 "#,
@@ -184,7 +186,7 @@ fn flags_undefined_account_in_assertion() {
         "assertions/2026/05/as01.toml",
         r#"
 id = "as01"
-account = "Assets:Phantom"
+account_name = "Assets:Phantom"
 date = "2026-05-31"
 created_at = "2026-05-31T23:59:00+09:00"
 updated_at = "2026-05-31T23:59:00+09:00"
@@ -217,11 +219,11 @@ narration = ""
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "100"
 currency = "JPY"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-99"
 currency = "JPY"
 "#,
@@ -237,11 +239,11 @@ narration = ""
 created_at = "2026-05-21T12:00:00+09:00"
 updated_at = "2026-05-21T12:00:00+09:00"
 [[postings]]
-account = "Mystery"
+account_name = "Mystery"
 amount = "1"
 currency = "JPY"
 [[postings]]
-account = "Assets:Cash:JPY"
+account_name = "Assets:Cash:JPY"
 amount = "-1"
 currency = "JPY"
 "#,

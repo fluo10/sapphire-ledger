@@ -21,12 +21,26 @@ impl Workspace {
     /// Run all cross-record validations. Returns every issue found, never
     /// short-circuiting, so the caller can present a complete report.
     pub fn validate(&self) -> Vec<ValidationIssue> {
+        use crate::account::{describe_ref, resolve_account};
+
         let mut issues = Vec::new();
-        let accounts_by_name: HashMap<&str, &Account> = self
-            .accounts
-            .iter()
-            .map(|a| (a.name.as_str(), a))
-            .collect();
+        let mut by_id: HashMap<&str, &Account> = HashMap::new();
+        let mut by_name: HashMap<&str, &Account> = HashMap::new();
+
+        for account in &self.accounts {
+            by_name.insert(account.name.as_str(), account);
+            // A rename is a file move; if that races under record-level sync,
+            // one id can end up at two paths. Unlike a stale name, that is
+            // genuinely broken.
+            if by_id.insert(account.id.as_str(), account).is_some() {
+                issues.push(ValidationIssue {
+                    message: format!("duplicate account id {}", account.id),
+                    transaction_id: None,
+                    assertion_id: None,
+                    account: Some(account.name.clone()),
+                });
+            }
+        }
 
         for tx in &self.transactions {
             if let Err(err) = tx.validate() {
@@ -39,29 +53,28 @@ impl Workspace {
             }
 
             for posting in &tx.postings {
-                match accounts_by_name.get(posting.account.as_str()) {
-                    None => issues.push(ValidationIssue {
-                        message: format!(
-                            "transaction {} references undefined account {}",
-                            tx.id, posting.account
-                        ),
+                let id = posting.account_id.as_deref();
+                let name = posting.account_name.as_deref();
+                match resolve_account(id, name, &by_id, &by_name) {
+                    Err(err) => issues.push(ValidationIssue {
+                        message: format!("transaction {}: {}", tx.id, render(&err)),
                         transaction_id: Some(tx.id.clone()),
                         assertion_id: None,
-                        account: Some(posting.account.clone()),
+                        account: Some(describe_ref(id, name)),
                     }),
-                    Some(account) => {
+                    Ok(account) => {
                         if !account.allows_currency(&posting.currency) {
                             issues.push(ValidationIssue {
                                 message: format!(
                                     "transaction {} posts {} to {}, but that account only allows {}",
                                     tx.id,
                                     posting.currency,
-                                    posting.account,
+                                    account.name,
                                     account.currencies.join(", "),
                                 ),
                                 transaction_id: Some(tx.id.clone()),
                                 assertion_id: None,
-                                account: Some(posting.account.clone()),
+                                account: Some(account.name.clone()),
                             });
                         }
                     }
@@ -70,17 +83,16 @@ impl Workspace {
         }
 
         for assertion in &self.assertions {
-            match accounts_by_name.get(assertion.account.as_str()) {
-                None => issues.push(ValidationIssue {
-                    message: format!(
-                        "assertion {} references undefined account {}",
-                        assertion.id, assertion.account
-                    ),
+            let id = assertion.account_id.as_deref();
+            let name = assertion.account_name.as_deref();
+            match resolve_account(id, name, &by_id, &by_name) {
+                Err(err) => issues.push(ValidationIssue {
+                    message: format!("assertion {}: {}", assertion.id, render(&err)),
                     transaction_id: None,
                     assertion_id: Some(assertion.id.clone()),
-                    account: Some(assertion.account.clone()),
+                    account: Some(describe_ref(id, name)),
                 }),
-                Some(account) => {
+                Ok(account) => {
                     for balance in &assertion.balances {
                         if !account.allows_currency(&balance.currency) {
                             issues.push(ValidationIssue {
@@ -88,12 +100,12 @@ impl Workspace {
                                     "assertion {} asserts {} balance for {}, but that account only allows {}",
                                     assertion.id,
                                     balance.currency,
-                                    assertion.account,
+                                    account.name,
                                     account.currencies.join(", "),
                                 ),
                                 transaction_id: None,
                                 assertion_id: Some(assertion.id.clone()),
-                                account: Some(assertion.account.clone()),
+                                account: Some(account.name.clone()),
                             });
                         }
                     }

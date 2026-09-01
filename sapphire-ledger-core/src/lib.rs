@@ -15,7 +15,7 @@ pub mod transaction;
 pub mod validate;
 pub mod workspace;
 
-pub use account::{Account, AccountType, account_name_segments};
+pub use account::{Account, AccountType, account_name_segments, describe_ref, resolve_account};
 pub use assertion::{Assertion, Balance};
 pub use config::{CURRENT_SCHEMA_VERSION, CacheConfig, Config};
 pub use error::{Error, Result};
