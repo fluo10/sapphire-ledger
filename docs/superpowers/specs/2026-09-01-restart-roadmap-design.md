@@ -112,7 +112,15 @@ The distinction is deliberate:
 
 - Transactions, assertions and prices are *named by their id* inside a
   `{year}/{MM}/` directory, so a time-ordered id makes the directory listing
-  meaningful. `now_unix()` gives that.
+  meaningful. `now_unix()` gives that — for the first mint only. `now_unix()`
+  is a pure function of the current decisecond, so retrying it after a
+  collision returns the *same* id; a retry loop over it cannot terminate, and
+  sleeping to cross a decisecond boundary would cost 100 ms per record. So
+  `core::ops` mints time-ordered on the first attempt and **random** on every
+  retry. A collision means another record landed in this same decisecond,
+  where time-ordering is unobtainable anyway; uniqueness is the hard
+  requirement and ordering is the nicety, so ordering is what gives way. The
+  `date` field inside each record remains the real ordering key.
 - Accounts are named by their account name (`accounts/Assets/Cash/JPY.toml`),
   so their id does no ordering work at all — `opened_at` already carries the
   meaningful date. Meanwhile accounts are created in bursts, when the chart of
