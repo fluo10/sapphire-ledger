@@ -33,19 +33,23 @@ them with `rust_decimal::Decimal` via `#[serde(with = "rust_decimal::serde::str"
 
 ## File granularity: one record, one file
 
-The fundamental rule is **one record = one file**. Two people (or a person
-and an AI) editing different receipts touch different files, so git merges
-become trivial.
+The fundamental rule is **one record = one file** — a transaction, an
+account, an assertion, or a price-log entry. Two people (or a person and an
+AI) editing different records touch different files, so git merges become
+trivial.
 
 ```
 my-ledger/
 ├── .sapphire-ledger/
-│   └── config.toml          # workspace config (git-tracked)
+│   ├── config.toml          # workspace config (git-tracked)
+│   └── .gitignore           # vestigial: still lists cache.sqlite
 ├── accounts/
 │   └── {Type}/.../{Leaf}.toml
 ├── transactions/
 │   └── {year}/{MM}/{grain-id}.toml
-└── assertions/
+├── assertions/
+│   └── {year}/{MM}/{grain-id}.toml
+└── prices/
     └── {year}/{MM}/{grain-id}.toml
 ```
 
@@ -74,10 +78,10 @@ Account name validation rejects:
 - `.` or `..` segments (path traversal).
 - Segments containing `/` or `\`.
 
-### Transaction and assertion paths
+### Transaction, assertion and price-log paths
 
-Both follow `{kind}/{year}/{MM}/{grain-id}.toml`. The id is stored both as
-the filename and as a field inside the file (`id = "0a1b2c3"`) so a record
+All three follow `{kind}/{year}/{MM}/{grain-id}.toml`. The id is stored both
+as the filename and as a field inside the file (`id = "0a1b2c3"`) so a record
 survives being moved or copied.
 
 Ids come from [`grain-id`](https://crates.io/crates/grain-id). Records whose id
@@ -226,7 +230,7 @@ of a given date (after all transactions on that date — hledger semantics,
 not Beancount's before-the-date semantics).
 
 ```toml
-id = "as0001"
+id = "b7f3n0q"
 account_id   = "4h6j2k9"       # authoritative; account_name is denormalized
 account_name = "Assets:Brokerage"
 date = "2026-05-31"
@@ -310,6 +314,7 @@ Validation runs at two layers.
 short-circuits — the user gets every issue in one pass. Issues currently
 detected:
 
+- Two accounts share an `id` (a rename that raced under sync).
 - Transaction fails per-record validation (balance, posting count).
 - Posting references an account that doesn't exist in `accounts/`.
 - Posting currency violates the account's `currencies` constraint.
@@ -373,6 +378,24 @@ an `Arc<Mutex<LedgerState>>`, tools declared with rmcp's `#[tool]` macro, and
 a stdio entry point. The HTTP transport arrives with `sapphire-ledger-server`,
 which puts `/rpc` and `/mcp` behind one set of API keys — not with the desktop
 GUI, as this document originally planned.
+
+### Tools
+
+Nine tools, declared in [`server.rs`](../sapphire-ledger-mcp/src/server.rs):
+five read, four write. Descriptions below are the tools' own
+`#[tool(description = ...)]` text, condensed to one line each.
+
+| Tool | Does |
+|---|---|
+| `list_accounts` | List every account with its id, name, type, allowed currencies and open date. The id is the stable handle — it survives a rename. |
+| `get_transaction` | Show one transaction, with all of its postings, by id. |
+| `query_postings` | Find postings, optionally filtered by account (id or name), currency and date range; each result carries its transaction's id, date and narration. |
+| `query_prices` | Find price-log entries, optionally filtered by base, quote and date range. |
+| `validate_workspace` | Re-read the ledger from disk and report every validation issue. Empty array means consistent; a stale `account_name` alone is NOT an issue. |
+| `add_account` | Create an account. Fails if one with that name already exists. Every account a posting names must be created first. Returns the new account's id. |
+| `add_transaction` | Record a transaction. Postings must sum to zero per currency, and every account named must already exist. Nothing is written if validation fails. |
+| `add_assertion` | Record a balance assertion: what an account should hold at the END of a date. A mismatch is a hard error when the books are checked. |
+| `add_price` | Record an observed exchange rate in the price log: one unit of `base` costs `rate` units of `quote` on `date`. |
 
 ### Crate is library-only
 
@@ -449,7 +472,7 @@ permissive until there is a reason to tighten it.
 - ✅ Record ids everywhere, with id-linked account references.
 - ✅ Price-log records (storage; conversion and reporting deferred).
 - ✅ `core::ops` write path.
-- ✅ `LedgerState` on `sapphire-framework`.
+- ✅ Framework dependency (`AppContext`) + `LedgerState` session object.
 - ✅ MCP server over stdio: read and write tools, via `sapphire-ledger mcp`.
 - 🚧 `sapphire-ledger-server` (`/rpc` + `/mcp`).
 - 🚧 CLI write commands.
