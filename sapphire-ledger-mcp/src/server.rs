@@ -16,7 +16,7 @@ use rmcp::{
     schemars, tool, tool_router,
     transport::stdio,
 };
-use sapphire_ledger_core::{LedgerState, ops};
+use sapphire_ledger_core::LedgerState;
 use serde::Deserialize;
 
 /// Called after a tool writes, with every path the write touched.
@@ -189,18 +189,23 @@ impl SapphireLedgerServer {
             let guard = self.lock_state();
             let ws = guard.workspace();
 
-            // Resolve the filter to an id once, so that filtering by a
-            // renamed account's *current* name still finds postings whose
-            // stored name is stale.
-            let wanted_id: Option<String> = match &p.account {
-                None => None,
-                Some(needle) => ws
+            // Resolve the filter once, so that filtering by a renamed
+            // account's *current* name still finds postings whose stored
+            // name is stale, and so that a posting carrying only a name
+            // still matches.
+            let wanted: Option<(Option<String>, String)> = p.account.as_ref().map(|needle| {
+                match ws
                     .accounts
                     .iter()
                     .find(|a| &a.id == needle || &a.name == needle)
-                    .map(|a| a.id.clone())
-                    .or_else(|| Some(needle.clone())),
-            };
+                {
+                    Some(a) => (Some(a.id.clone()), a.name.clone()),
+                    // The needle names no known account. Keep it literally, so a
+                    // hand-edited reference to an account that does not exist is
+                    // still findable -- that is worth surfacing, not hiding.
+                    None => (None, needle.clone()),
+                }
+            });
 
             let mut hits: Vec<PostingHit> = Vec::new();
             for tx in &ws.transactions {
@@ -208,9 +213,18 @@ impl SapphireLedgerServer {
                     continue;
                 }
                 for posting in &tx.postings {
-                    if let Some(wanted) = &wanted_id {
-                        let matches = posting.account_id.as_deref() == Some(wanted.as_str())
-                            || posting.account_name.as_deref() == Some(wanted.as_str());
+                    if let Some((wanted_id, wanted_needle)) = &wanted {
+                        let matches = match (&posting.account_id, wanted_id) {
+                            // Both sides resolved: the id is authoritative and decides alone.
+                            (Some(pid), Some(wid)) => pid == wid,
+                            // The posting carries no id, so its name is its only reference.
+                            (None, _) => {
+                                posting.account_name.as_deref() == Some(wanted_needle.as_str())
+                            }
+                            // The needle named no known account; compare it literally so a
+                            // dangling id reference is still findable.
+                            (Some(pid), None) => pid == wanted_needle,
+                        };
                         if !matches {
                             continue;
                         }
@@ -352,6 +366,7 @@ pub async fn run(ledger_dir: Option<&Path>, init: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sapphire_ledger_core::{AccountType, ops};
 
     /// Build a throwaway server over a freshly initialized ledger. Hold the
     /// `TempDir` for the test's duration — dropping it removes the directory
@@ -376,7 +391,9 @@ mod tests {
     /// `tools.<N>.custom.input_schema.type: Field required`.
     #[test]
     fn every_tool_input_schema_declares_object_type() {
-        for tool in SapphireLedgerServer::tool_router().list_all() {
+        let tools = SapphireLedgerServer::tool_router().list_all();
+        assert_eq!(tools.len(), 5);
+        for tool in tools {
             let schema = serde_json::to_value(&tool.input_schema).expect("schema to json");
             assert_eq!(
                 schema.get("type").and_then(|t| t.as_str()),
@@ -421,5 +438,76 @@ currency = "JPY"
             .validate_workspace(Parameters(EmptyParams {}))
             .expect("ok");
         assert!(json.contains("undefined account"), "got: {json}");
+    }
+
+    /// A posting can carry only `account_name` (no `account_id`) -- that is
+    /// a valid posting, not an error. `query_postings` must still find it
+    /// when filtering by that account's name; matching the id-only arm and
+    /// dropping the name-only posting silently would make the tool look
+    /// empty for exactly the postings it exists to surface.
+    #[test]
+    fn query_postings_matches_a_name_only_posting_by_account_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        prepare_state(Some(dir.path()), true).expect("init test ledger");
+
+        ops::create_account(
+            dir.path(),
+            "Expenses:Food".to_string(),
+            AccountType::Expense,
+            vec!["JPY".to_string()],
+            "2026-01-01".parse().expect("date"),
+            None,
+        )
+        .expect("create account");
+        ops::create_account(
+            dir.path(),
+            "Assets:Cash".to_string(),
+            AccountType::Asset,
+            vec!["JPY".to_string()],
+            "2026-01-01".parse().expect("date"),
+            None,
+        )
+        .expect("create account");
+
+        // Written straight to disk, like the validate_workspace fixture
+        // above: this is the only way to produce a posting with a name but
+        // no id, since ops::create_transaction always resolves and fills
+        // account_id.
+        let path = dir.path().join("transactions/2026/05/tx00002.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        std::fs::write(
+            &path,
+            r#"
+id = "tx00002"
+date = "2026-05-21"
+narration = "groceries"
+created_at = "2026-05-21T18:30:00+09:00"
+updated_at = "2026-05-21T18:30:00+09:00"
+
+[[postings]]
+account_name = "Expenses:Food"
+amount = "10"
+currency = "JPY"
+
+[[postings]]
+account_name = "Assets:Cash"
+amount = "-10"
+currency = "JPY"
+"#,
+        )
+        .expect("write");
+
+        let state = LedgerState::open(dir.path()).expect("reopen ledger");
+        let server = SapphireLedgerServer::new(state);
+
+        let json = server
+            .query_postings(Parameters(QueryPostingsParams {
+                account: Some("Expenses:Food".to_string()),
+                currency: None,
+                date_from: None,
+                date_to: None,
+            }))
+            .expect("ok");
+        assert!(json.contains("\"tx00002\""), "got: {json}");
     }
 }
