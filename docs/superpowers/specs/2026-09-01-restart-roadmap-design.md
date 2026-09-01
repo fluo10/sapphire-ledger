@@ -27,14 +27,28 @@ Three assumptions in [`docs/design.md`](../../design.md) went stale while the
 project was idle. They are corrected here; `design.md` itself should be updated
 once this lands.
 
-**1. The SQLite cache plan is now backwards.** `docs/design.md` -> "Cache
-strategy" and issue #1 specify a `rusqlite` cache at
-`.sapphire-ledger/cache.sqlite`. In the meantime `sapphire-framework` *deleted*
-SQLite support outright and moved to redb + tantivy, because `libsqlite3-sys`
-carries `links = "sqlite3"` and Cargo checks that uniqueness even for
-feature-disabled optional dependencies — no single rusqlite version satisfied
-both matrix-sdk (agent) and grain-id (journal). Writing ledger's own rusqlite
-cache would walk back into the wall the framework just climbed out of.
+**1. The SQLite cache plan needs rewriting — though not for the reason it first
+looks like.** `docs/design.md` -> "Cache strategy" and issue #1 specify a
+`rusqlite` cache at `.sapphire-ledger/cache.sqlite`. An app-level SQLite cache
+is *not* forbidden: `sapphire-journal-core` still has one
+(`sapphire-journal-core/src/cache.rs`). What changed is narrower and more
+concrete:
+
+- `sapphire-framework` deleted its own SQLite support in favour of redb +
+  tantivy, so it no longer pins rusqlite for its consumers — and it now supplies
+  mtime tracking (`sapphire-framework-track`) and search
+  (`sapphire-framework-retrieve`) directly. That is most of what issue #1
+  wanted a cache for.
+- Ledger must take `grain-id` for id generation. Current `grain-id` requires
+  `rusqlite 0.40.2` behind an optional feature, and Cargo resolves
+  feature-disabled optional dependencies for version selection and for
+  `links = "sqlite3"` uniqueness. Ledger's workspace manifest still declares an
+  unused `rusqlite = "0.39"` (`Cargo.toml:23`) whose `libsqlite3-sys` major
+  differs. **No member crate references it** — it is a dead declaration, and it
+  has to go before grain-id lands regardless of whether a cache is ever built.
+
+So: drop the pin, take the framework's `track` and `retrieve`, and defer any
+ledger-specific index until walking is measurably slow.
 
 **2. The MCP template moved.** Issues #2 and #3 name
 [fluo10/sapphire-journal#229](https://github.com/fluo10/sapphire-journal/pull/229)
@@ -54,9 +68,14 @@ Minor: `docs/design.md` still says "caretta-id". The crate is published as
 
 - **Adopt `sapphire-framework` from the start**, rather than after an
   independent MVP. TOML is already an indexed extension
-  (`crates/sapphire-framework-workspace/src/indexer.rs:23`) and `IndexHook`
-  (`on_changed` / `on_removed` / `after_sweep`) is exactly the extension point
-  ledger needs. `sapphire-journal-core` already consumes it this way.
+  (`crates/sapphire-framework-workspace/src/indexer.rs:23`), and two
+  integration shapes are available: the `WorkspaceState` + `IndexHook`
+  (`on_changed` / `on_removed` / `after_sweep`) path, or the looser one
+  `sapphire-journal-core` actually uses — keep the app's own workspace type and
+  hold `AppContext`, `RetrieveDb` and `sapphire-framework-track`'s
+  `RedbTrackStore` beside it (`sapphire-journal-core/src/journal_state.rs`).
+  **Ledger follows journal's shape**, since ledger already has its own
+  `Workspace` type and its record layout is domain-specific.
 - **Defer the ledger-specific cache.** Framework `track` (mtime deltas) and
   `retrieve` (full-text) come for free. A ledger-specific index — postings by
   account, running balances — is *not* built yet. Balances come from walking the
@@ -147,12 +166,20 @@ builds the rest*, not as everything worth building.
    `validate()` before save; refuse to overwrite. Covers accounts,
    transactions, assertions, and price entries. Includes the
    `Price` / `PriceEntry` split.
-2. **Framework migration.** `core` depends on `sapphire-framework-workspace`
-   and `-track`; implement `IndexHook`; drop `rusqlite` from the workspace
-   manifest. Mirror journal's feature chain, where each crate forwards
-   `redb-store` down to the framework and the top-level binaries enable it by
-   default — the framework warns that an app which leaves it off silently falls
-   back to a volatile in-memory store.
+2. **Framework migration.** Drop the dead `rusqlite` pin; depend on
+   `sapphire-framework-workspace` and `-track`; introduce a `LedgerState`
+   object holding the loaded `Workspace` alongside an `AppContext`, mirroring
+   `JournalState`. Mirror journal's feature chain too, where each crate
+   forwards `redb-store` down to the framework and the top-level binaries
+   enable it by default — the framework warns that an app which leaves it off
+   silently falls back to a volatile in-memory store.
+
+   **Scope note.** Within steps 1-3 the framework buys little directly: no MVP
+   tool needs search, and the ledger index is deferred, so `RetrieveDb` and
+   mtime-driven reindexing have no consumer yet. The reason to do it now anyway
+   is that it is cheapest while ledger still has no state object at all, and
+   step 4's `/rpc` sync — the actual payoff — assumes it. Keep this step to the
+   dependency and state-object change; do not build indexing on top of it here.
 3. **`sapphire-ledger-mcp`.** Read tools `list_accounts`, `get_transaction`,
    `query_postings`, `validate_workspace`, `query_prices`; write tools
    `add_transaction`, `add_account`, `add_assertion`. `http-server` feature
