@@ -12,7 +12,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Sapphire Ledger",
         options,
-        Box::new(|_cc| Ok(Box::new(App::default()))),
+        Box::new(|_cc| Ok(Box::new(App))),
     )
 }
 
