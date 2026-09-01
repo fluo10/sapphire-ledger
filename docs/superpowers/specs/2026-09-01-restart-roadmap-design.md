@@ -88,11 +88,81 @@ Minor: `docs/design.md` still says "caretta-id". The crate is published as
   feature, but CLI, MCP, GUI and receipt import all perform the same sequence:
   mint id -> resolve canonical path -> `validate()` -> save. That sequence is
   written once in `core::ops`; the four entry points are thin.
+- **Every record carries a `grain-id`, and postings link to accounts by id.**
+  See "Record identity" below.
 - **Split issue #5.** The storage half (record type, paths, write op, one read
   tool) is cheaper now than later; the conversion half (`price_at`, `convert`,
   net-worth reporting) is exactly as cheap later. Take the first, defer the
   second. Rationale below.
 - **HTTP is the agent's transport.** stdio stays for local development.
+
+### Record identity
+
+`Account` is the only record type without an id. It gets one, so that an
+account can be renamed without losing its identity.
+
+**Ids are `grain-id` everywhere**, not UUIDs. Every id in this system can end
+up in front of a person — in a filename, in a CLI argument, in a chat message
+to the agent — and that is the case grain-id is for. UUIDs would only pay off
+if ids had to be minted collision-free at a scale a household ledger never
+reaches.
+
+**Accounts use `GrainId::random()`; everything else uses `GrainId::now_unix()`.**
+The distinction is deliberate:
+
+- Transactions, assertions and prices are *named by their id* inside a
+  `{year}/{MM}/` directory, so a time-ordered id makes the directory listing
+  meaningful. `now_unix()` gives that.
+- Accounts are named by their account name (`accounts/Assets/Cash/JPY.toml`),
+  so their id does no ordering work at all — `opened_at` already carries the
+  meaningful date. Meanwhile accounts are created in bursts, when the chart of
+  accounts is first set up, and `now_unix()` has decisecond resolution: every
+  account made in one sitting would share a long leading prefix, exactly when
+  there are the most of them to tell apart. Random ids spread across the
+  alphabet, so a short prefix disambiguates for CLI completion.
+
+At household scale random collision is negligible — grain-id is 35 bits, so
+200 accounts collide with probability around 6e-7 — but it must still be
+*detected*, because an account's id is not its filename and the
+refuse-to-overwrite check therefore cannot see it. `create_account` checks the
+minted id against the loaded workspace.
+
+### Postings reference accounts by id, and carry the name too
+
+```toml
+[[postings]]
+account_id   = "0a1b2c3"        # authoritative; survives a rename
+account_name = "Expenses:Food"  # denormalized, for whoever reads the raw file
+```
+
+The alternative — keep name-only references and add a `rename_account`
+operation that rewrites every referencing transaction — was rejected. It is a
+non-atomic write across many files, and remote sync resolves conflicts per
+path with last-writer-wins. A client adding a transaction under the old name
+while another client is mid-rename would produce a surviving record with a
+dangling reference. Linking by id removes the cross-record rewrite entirely,
+so there is no multi-file operation left to race with.
+
+Storing the name as well is a deliberate denormalization, not an accident. The
+two fields have different jobs, and three rules keep that from rotting:
+
+1. **`account_id` is authoritative.** `account_name` is never used for lookup
+   or matching. Display names are resolved from the id at load time; the
+   on-disk copy exists for a human reading the raw TOML.
+2. **A stale `account_name` is not a validation error.** After a rename, older
+   transactions keep the old name until they are rewritten for some other
+   reason. Flagging that would reintroduce the whole-history rewrite this
+   design exists to avoid. It is the accepted cost.
+3. **Duplicate account ids *are* a validation error.** An account's path is
+   derived from its name, so a rename is a file move — delete one path, add
+   another. If that races under sync, the same id can end up at two paths, and
+   that is genuinely broken.
+
+Either field alone is accepted on read, so the format stays hand-editable:
+both present means the id wins; name-only is resolved to an id; id-only is
+taken as-is; neither is a validation error. Requiring a lookup before a human
+or an agent can write a posting would undercut the plain-text premise and the
+primary input path at once.
 
 ### Why the price-log storage half is cheaper now
 
@@ -158,14 +228,15 @@ verbatim as the prompt. Two files cover both requested behaviours.
 
 ## Phase 1 — the self-hosting line
 
-Claude Code access ends in early September 2026 (see the agent's own roadmap).
-Phase 1 is scoped as *what must exist before the agent can be the tool that
-builds the rest*, not as everything worth building.
+The window on the current development tooling is short. Phase 1 is therefore
+scoped as *what must exist before sapphire-agent can be the tool that builds
+the rest*, not as everything worth building.
 
 1. **`core::ops` write API.** Mint ids via `grain-id`; resolve canonical paths;
    `validate()` before save; refuse to overwrite. Covers accounts,
    transactions, assertions, and price entries. Includes the
-   `Price` / `PriceEntry` split.
+   `Price` / `PriceEntry` split, the new `Account.id`, and the posting's
+   `account_id` / `account_name` pair with its resolution rule.
 2. **Framework migration.** Drop the dead `rusqlite` pin; depend on
    `sapphire-framework-workspace` and `-track`; introduce a `LedgerState`
    object holding the loaded `Workspace` alongside an `AppContext`, mirroring
@@ -230,7 +301,7 @@ New issue needed: `sapphire-ledger-server`.
 - **The framework is a moving git dependency**, not a published crate; journal
   pins `branch = "main"`. Ledger inherits that churn. Mitigation: none beyond
   pinning a commit if it becomes disruptive.
-- **Phase 1 is not small** relative to the remaining Claude Code window. The
+- **Phase 1 is not small** relative to the remaining tooling window. The
   1-3 fallback exists for that reason and should be invoked early rather than
   discovered late.
 - **Server exposure.** `sapphire-journal-server` warns that binding beyond
