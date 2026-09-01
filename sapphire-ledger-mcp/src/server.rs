@@ -16,7 +16,7 @@ use rmcp::{
     schemars, tool, tool_router,
     transport::stdio,
 };
-use sapphire_ledger_core::LedgerState;
+use sapphire_ledger_core::{LedgerState, ops};
 use serde::Deserialize;
 
 /// Called after a tool writes, with every path the write touched.
@@ -124,6 +124,148 @@ pub struct QueryPricesParams {
 fn parse_date(raw: &str) -> anyhow::Result<chrono::NaiveDate> {
     raw.parse::<chrono::NaiveDate>()
         .with_context(|| format!("not a YYYY-MM-DD date: {raw}"))
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddAccountParams {
+    /// Colon-separated account name, e.g. `Assets:Cash:JPY`.
+    pub name: String,
+    /// One of: Asset, Liability, Equity, Income, Expense.
+    #[serde(rename = "type")]
+    pub account_type: String,
+    /// Currencies this account may hold. Empty means any.
+    #[serde(default)]
+    pub currencies: Vec<String>,
+    /// `YYYY-MM-DD` the account opened.
+    pub opened_at: String,
+    pub description: Option<String>,
+}
+
+/// One side of a transaction. Amounts are strings so decimals survive JSON.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PostingParam {
+    /// Account id or account name — either is accepted, and the account must
+    /// already exist. The stored record always keeps the id.
+    pub account: String,
+    /// Signed decimal, e.g. `1200` or `-1200`.
+    pub amount: String,
+    /// Currency code, e.g. `JPY`.
+    pub currency: String,
+    /// For a cross-currency posting: the unit price in `price_currency`.
+    pub price_value: Option<String>,
+    /// Currency the `price_value` is denominated in.
+    pub price_currency: Option<String>,
+    pub memo: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddTransactionParams {
+    /// `YYYY-MM-DD`.
+    pub date: String,
+    /// What the transaction was.
+    pub narration: String,
+    pub payee: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// `cleared` or `pending`.
+    pub status: Option<String>,
+    /// At least two postings, summing to zero per currency.
+    pub postings: Vec<PostingParam>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BalanceParam {
+    /// Decimal amount as a string.
+    pub amount: String,
+    pub currency: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddAssertionParams {
+    /// Account id or account name.
+    pub account: String,
+    /// `YYYY-MM-DD`. The balance is asserted at the END of this date.
+    pub date: String,
+    pub balances: Vec<BalanceParam>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddPriceParams {
+    pub date: String,
+    /// Base currency, e.g. `USD`.
+    pub base: String,
+    /// Quote currency, e.g. `JPY`.
+    pub quote: String,
+    /// How many `quote` units one `base` unit costs, as a decimal string.
+    pub rate: String,
+    /// Where the rate came from, e.g. `manual`.
+    pub source: Option<String>,
+}
+
+fn parse_decimal(raw: &str) -> anyhow::Result<rust_decimal::Decimal> {
+    raw.parse::<rust_decimal::Decimal>()
+        .with_context(|| format!("not a decimal: {raw}"))
+}
+
+fn parse_account_type(raw: &str) -> anyhow::Result<sapphire_ledger_core::AccountType> {
+    use sapphire_ledger_core::AccountType::*;
+    Ok(match raw {
+        "Asset" => Asset,
+        "Liability" => Liability,
+        "Equity" => Equity,
+        "Income" => Income,
+        "Expense" => Expense,
+        other => anyhow::bail!(
+            "unknown account type {other:?}; expected one of \
+             Asset, Liability, Equity, Income, Expense"
+        ),
+    })
+}
+
+fn parse_status(raw: &str) -> anyhow::Result<sapphire_ledger_core::TransactionStatus> {
+    use sapphire_ledger_core::TransactionStatus::*;
+    Ok(match raw {
+        "cleared" => Cleared,
+        "pending" => Pending,
+        other => anyhow::bail!("unknown status {other:?}; expected `cleared` or `pending`"),
+    })
+}
+
+/// Split a caller-supplied account reference into the id/name pair `ops`
+/// expects. We do not know which one it is, so both are offered and `ops`
+/// resolves: an exact id match wins, otherwise the name is tried.
+fn split_account_ref(
+    needle: &str,
+    accounts: &[sapphire_ledger_core::Account],
+) -> (Option<String>, Option<String>) {
+    if accounts.iter().any(|a| a.id == needle) {
+        (Some(needle.to_string()), None)
+    } else {
+        (None, Some(needle.to_string()))
+    }
+}
+
+fn build_posting(
+    p: PostingParam,
+    accounts: &[sapphire_ledger_core::Account],
+) -> anyhow::Result<sapphire_ledger_core::Posting> {
+    let price = match (p.price_value, p.price_currency) {
+        (Some(value), Some(currency)) => Some(sapphire_ledger_core::Price {
+            value: parse_decimal(&value)?,
+            currency,
+        }),
+        (None, None) => None,
+        _ => anyhow::bail!("price_value and price_currency must be given together"),
+    };
+    let (account_id, account_name) = split_account_ref(&p.account, accounts);
+    Ok(sapphire_ledger_core::Posting {
+        account_id,
+        account_name,
+        amount: parse_decimal(&p.amount)?,
+        currency: p.currency,
+        price,
+        memo: p.memo,
+    })
 }
 
 /// One posting flattened with its transaction's context, which is what a
@@ -291,6 +433,123 @@ impl SapphireLedgerServer {
         })()
         .map_err(|e| e.to_string())
     }
+
+    #[tool(
+        description = "Create an account. Fails if one with that name already exists. \
+        Every account a posting names must be created first. Returns the new account's id."
+    )]
+    fn add_account(&self, Parameters(p): Parameters<AddAccountParams>) -> Result<String, String> {
+        (|| -> anyhow::Result<String> {
+            let account_type = parse_account_type(&p.account_type)?;
+            let opened_at = parse_date(&p.opened_at)?;
+
+            let mut guard = self.lock_state();
+            let (id, dest) = ops::create_account(
+                guard.root(),
+                p.name,
+                account_type,
+                p.currencies,
+                opened_at,
+                p.description,
+            )?;
+            guard.reload()?;
+            drop(guard);
+            self.notify_write(&[dest.clone()]);
+            Ok(format!("created account {id}: {}", dest.display()))
+        })()
+        .map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Record a transaction. Postings must sum to zero per currency, and \
+        every account named must already exist. Nothing is written if validation fails."
+    )]
+    fn add_transaction(
+        &self,
+        Parameters(p): Parameters<AddTransactionParams>,
+    ) -> Result<String, String> {
+        (|| -> anyhow::Result<String> {
+            let date = parse_date(&p.date)?;
+            let status = p.status.as_deref().map(parse_status).transpose()?;
+
+            let mut guard = self.lock_state();
+            let postings = {
+                let accounts = &guard.workspace().accounts;
+                p.postings
+                    .into_iter()
+                    .map(|param| build_posting(param, accounts))
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            };
+            let (id, dest) = ops::create_transaction(
+                guard.root(),
+                date,
+                p.narration,
+                p.payee,
+                p.tags,
+                status,
+                postings,
+            )?;
+            guard.reload()?;
+            drop(guard);
+            self.notify_write(&[dest.clone()]);
+            Ok(format!("created transaction {id}: {}", dest.display()))
+        })()
+        .map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Record a balance assertion: what an account should hold at the END \
+        of a date. A mismatch is a hard error when the books are checked."
+    )]
+    fn add_assertion(
+        &self,
+        Parameters(p): Parameters<AddAssertionParams>,
+    ) -> Result<String, String> {
+        (|| -> anyhow::Result<String> {
+            let date = parse_date(&p.date)?;
+            let balances = p
+                .balances
+                .into_iter()
+                .map(|b| {
+                    Ok(sapphire_ledger_core::Balance {
+                        amount: parse_decimal(&b.amount)?,
+                        currency: b.currency,
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            let mut guard = self.lock_state();
+            let (account_id, account_name) =
+                split_account_ref(&p.account, &guard.workspace().accounts);
+            let (id, dest) =
+                ops::create_assertion(guard.root(), account_id, account_name, date, balances)?;
+            guard.reload()?;
+            drop(guard);
+            self.notify_write(&[dest.clone()]);
+            Ok(format!("created assertion {id}: {}", dest.display()))
+        })()
+        .map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Record an observed exchange rate in the price log: one unit of \
+        `base` costs `rate` units of `quote` on `date`."
+    )]
+    fn add_price(&self, Parameters(p): Parameters<AddPriceParams>) -> Result<String, String> {
+        (|| -> anyhow::Result<String> {
+            let date = parse_date(&p.date)?;
+            let rate = parse_decimal(&p.rate)?;
+
+            let mut guard = self.lock_state();
+            let (id, dest) =
+                ops::create_price(guard.root(), date, p.base, p.quote, rate, p.source)?;
+            guard.reload()?;
+            drop(guard);
+            self.notify_write(&[dest.clone()]);
+            Ok(format!("created price {id}: {}", dest.display()))
+        })()
+        .map_err(|e| e.to_string())
+    }
 }
 
 #[rmcp::tool_handler(router = self.tool_router)]
@@ -366,7 +625,7 @@ pub async fn run(ledger_dir: Option<&Path>, init: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sapphire_ledger_core::{AccountType, ops};
+    use sapphire_ledger_core::AccountType;
 
     /// Build a throwaway server over a freshly initialized ledger. Hold the
     /// `TempDir` for the test's duration — dropping it removes the directory
@@ -392,7 +651,7 @@ mod tests {
     #[test]
     fn every_tool_input_schema_declares_object_type() {
         let tools = SapphireLedgerServer::tool_router().list_all();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 9);
         for tool in tools {
             let schema = serde_json::to_value(&tool.input_schema).expect("schema to json");
             assert_eq!(
@@ -509,5 +768,139 @@ currency = "JPY"
             }))
             .expect("ok");
         assert!(json.contains("\"tx00002\""), "got: {json}");
+    }
+
+    fn posting_param(account: &str, amount: &str) -> PostingParam {
+        PostingParam {
+            account: account.to_string(),
+            amount: amount.to_string(),
+            currency: "JPY".to_string(),
+            price_value: None,
+            price_currency: None,
+            memo: None,
+        }
+    }
+
+    fn add_account(server: &SapphireLedgerServer, name: &str, ty: &str) -> String {
+        server
+            .add_account(Parameters(AddAccountParams {
+                name: name.into(),
+                account_type: ty.into(),
+                currencies: vec![],
+                opened_at: "2026-01-01".into(),
+                description: None,
+            }))
+            .expect("add_account")
+    }
+
+    #[test]
+    fn add_transaction_records_and_is_then_queryable() {
+        let (_dir, server) = test_server();
+        add_account(&server, "Expenses:Food", "Expense");
+        add_account(&server, "Assets:Cash:JPY", "Asset");
+
+        let created = server
+            .add_transaction(Parameters(AddTransactionParams {
+                date: "2026-05-21".into(),
+                narration: "イオン買い物".into(),
+                payee: Some("イオン".into()),
+                tags: vec!["grocery".into()],
+                status: None,
+                postings: vec![
+                    posting_param("Expenses:Food", "1200"),
+                    posting_param("Assets:Cash:JPY", "-1200"),
+                ],
+            }))
+            .expect("add_transaction");
+        assert!(created.contains("created"), "got: {created}");
+
+        let hits = server
+            .query_postings(Parameters(QueryPostingsParams {
+                account: Some("Expenses:Food".into()),
+                currency: None,
+                date_from: None,
+                date_to: None,
+            }))
+            .expect("query");
+        assert!(hits.contains("イオン買い物"), "got: {hits}");
+
+        let issues = server
+            .validate_workspace(Parameters(EmptyParams {}))
+            .expect("validate");
+        assert_eq!(issues.trim(), "[]", "ledger should be clean, got: {issues}");
+    }
+
+    #[test]
+    fn a_posting_can_name_an_account_by_its_id() {
+        let (_dir, server) = test_server();
+        let food_msg = add_account(&server, "Expenses:Food", "Expense");
+        add_account(&server, "Assets:Cash:JPY", "Asset");
+
+        // add_account reports "created account <id>: <path>"; pull the id out.
+        let food_id = food_msg
+            .split_whitespace()
+            .nth(2)
+            .expect("id in message")
+            .trim_end_matches(':')
+            .to_string();
+
+        server
+            .add_transaction(Parameters(AddTransactionParams {
+                date: "2026-05-21".into(),
+                narration: "by id".into(),
+                payee: None,
+                tags: vec![],
+                status: None,
+                postings: vec![
+                    posting_param(&food_id, "500"),
+                    posting_param("Assets:Cash:JPY", "-500"),
+                ],
+            }))
+            .expect("add_transaction by id");
+
+        let issues = server
+            .validate_workspace(Parameters(EmptyParams {}))
+            .expect("validate");
+        assert_eq!(issues.trim(), "[]", "got: {issues}");
+    }
+
+    #[test]
+    fn add_transaction_rejects_an_unbalanced_entry() {
+        let (_dir, server) = test_server();
+        add_account(&server, "Expenses:Food", "Expense");
+        add_account(&server, "Assets:Cash:JPY", "Asset");
+
+        let err = server
+            .add_transaction(Parameters(AddTransactionParams {
+                date: "2026-05-21".into(),
+                narration: "wrong".into(),
+                payee: None,
+                tags: vec![],
+                status: None,
+                postings: vec![
+                    posting_param("Expenses:Food", "1200"),
+                    posting_param("Assets:Cash:JPY", "-999"),
+                ],
+            }))
+            .expect_err("must reject");
+        assert!(err.contains("does not balance"), "got: {err}");
+    }
+
+    #[test]
+    fn add_account_rejects_an_unknown_type() {
+        let (_dir, server) = test_server();
+        let err = server
+            .add_account(Parameters(AddAccountParams {
+                name: "Assets:Cash:JPY".into(),
+                account_type: "Bogus".into(),
+                currencies: vec![],
+                opened_at: "2026-01-01".into(),
+                description: None,
+            }))
+            .expect_err("must reject");
+        assert!(
+            err.contains("Bogus"),
+            "the error should name the bad input, got: {err}"
+        );
     }
 }
