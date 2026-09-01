@@ -11,6 +11,10 @@ keywords = ["accounting", "ledger", "double-entry", "household", "plain-text"]
 [dependencies]
 serde.workspace = true
 chrono.workspace = true
+grain-id.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 rust_decimal.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

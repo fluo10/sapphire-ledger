@@ -8,6 +8,7 @@ pub mod account;
 pub mod assertion;
 pub mod config;
 pub mod error;
+pub mod ops;
 pub mod repository;
 pub mod transaction;
 pub mod validate;
