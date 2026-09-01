@@ -13,7 +13,14 @@ name = "sapphire-ledger"
 path = "src/main.rs"
 
 [dependencies]
-sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0" }
-sapphire-ledger-mcp  = { path = "../sapphire-ledger-mcp",  version = "0.1.0" }
+sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
+sapphire-ledger-mcp  = { path = "../sapphire-ledger-mcp",  version = "0.1.0", default-features = false }
 clap.workspace = true
 anyhow.workspace = true
+
+[features]
+default = ["redb-store"]
+redb-store = ["sapphire-ledger-core/redb-store", "sapphire-ledger-mcp/redb-store"]
+
+[dev-dependencies]
+tempfile.workspace = true

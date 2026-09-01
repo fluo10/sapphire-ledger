@@ -3877,6 +3877,7 @@ dependencies = [
  "clap",
  "sapphire-ledger-core",
  "sapphire-ledger-mcp",
+ "tempfile",
 ]
 
 [[package]]
