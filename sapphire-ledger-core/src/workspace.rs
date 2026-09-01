@@ -14,6 +14,7 @@ pub const CACHE_FILE: &str = "cache.sqlite";
 pub const TRANSACTIONS_DIR: &str = "transactions";
 pub const ACCOUNTS_DIR: &str = "accounts";
 pub const ASSERTIONS_DIR: &str = "assertions";
+pub const PRICES_DIR: &str = "prices";
 
 pub const TOML_EXTENSION: &str = "toml";
 
@@ -102,6 +103,14 @@ pub fn assertion_relative_path(date: NaiveDate, id: &str) -> PathBuf {
         .join(format!("{id}.{TOML_EXTENSION}"))
 }
 
+/// Relative path for a price-log entry: `prices/{year}/{MM}/{id}.toml`.
+pub fn price_relative_path(date: NaiveDate, id: &str) -> PathBuf {
+    PathBuf::from(PRICES_DIR)
+        .join(format!("{:04}", date.year()))
+        .join(format!("{:02}", date.month()))
+        .join(format!("{id}.{TOML_EXTENSION}"))
+}
+
 /// Create a new sapphire-ledger workspace at `target`. Creates the directory
 /// if missing. Errors if `.sapphire-ledger/` already exists there.
 pub fn init_workspace(target: &Path, base_currency: &str) -> Result<()> {
@@ -117,6 +126,7 @@ pub fn init_workspace(target: &Path, base_currency: &str) -> Result<()> {
     fs::create_dir_all(target.join(TRANSACTIONS_DIR))?;
     fs::create_dir_all(target.join(ACCOUNTS_DIR))?;
     fs::create_dir_all(target.join(ASSERTIONS_DIR))?;
+    fs::create_dir_all(target.join(PRICES_DIR))?;
 
     let config = Config {
         schema_version: CURRENT_SCHEMA_VERSION,

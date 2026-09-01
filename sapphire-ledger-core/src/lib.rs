@@ -24,6 +24,6 @@ pub use repository::{Workspace, load_toml, load_workspace, save_toml, walk_toml_
 pub use transaction::{Posting, Transaction, TransactionStatus};
 pub use validate::ValidationIssue;
 pub use workspace::{
-    account_name_from_relative_path, account_relative_path, assertion_relative_path,
-    find_workspace_root, init_workspace, transaction_relative_path,
+    PRICES_DIR, account_name_from_relative_path, account_relative_path, assertion_relative_path,
+    find_workspace_root, init_workspace, price_relative_path, transaction_relative_path,
 };
