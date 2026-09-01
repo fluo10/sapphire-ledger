@@ -156,9 +156,15 @@ fn resolve_postings(postings: Vec<Posting>, accounts: &[Account]) -> Result<Vec<
 
 /// Write a new account.
 ///
-/// The path comes from the name, so a duplicate name is a hard error. The id
-/// is random and is *not* in the path, so the refuse-to-overwrite check cannot
-/// see an id collision — that is checked against the existing accounts here.
+/// A duplicate name is a hard error. The path comes from the name, so the
+/// refuse-to-overwrite check catches that on its own — but only while every
+/// account file sits at the path its name implies, and nothing enforces that:
+/// a hand edit, a half-applied rename or a sync artifact can leave an account
+/// named `Assets:Foo` in `accounts/Assets/Bar.toml`. So the name is also
+/// checked against the accounts already on disk.
+///
+/// The id is random and is *not* in the path, so the refuse-to-overwrite
+/// check cannot see an id collision either — that is checked here too.
 pub fn create_account(
     root: &Path,
     name: String,
@@ -171,6 +177,11 @@ pub fn create_account(
     refuse_existing(&dest)?;
 
     let existing = load_accounts(root)?;
+    if existing.iter().any(|a| a.name == name) {
+        return Err(Error::Validation(format!(
+            "an account named {name} already exists"
+        )));
+    }
     let taken: std::collections::HashSet<&str> = existing.iter().map(|a| a.id.as_str()).collect();
 
     let id = (0..ID_ATTEMPTS)

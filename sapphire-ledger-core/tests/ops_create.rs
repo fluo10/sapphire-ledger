@@ -399,3 +399,45 @@ fn transactions_dated_in_different_months_never_share_an_id() {
         "no round stayed inside one decisecond; the test never exercised the collision window"
     );
 }
+
+/// `create_account`'s contract is "a duplicate name is a hard error", and the
+/// refuse-to-overwrite check only delivers that while every account file sits
+/// at the path its name implies. A hand edit, a half-applied rename or a sync
+/// artifact breaks that assumption, and then the name check has to come from
+/// the accounts already loaded -- which `create_account` holds anyway for its
+/// id-uniqueness check.
+#[test]
+fn create_account_refuses_a_duplicate_name_parked_at_another_path() {
+    let dir = ws();
+    let stray = dir.path().join("accounts/Assets/Bar.toml");
+    std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+    std::fs::write(
+        &stray,
+        r#"
+id = "acct999"
+name = "Assets:Foo"
+type = "Asset"
+opened_at = "2026-01-01"
+"#,
+    )
+    .unwrap();
+
+    let err = ops::create_account(
+        dir.path(),
+        "Assets:Foo".into(),
+        AccountType::Asset,
+        vec![],
+        "2026-01-01".parse().unwrap(),
+        None,
+    )
+    .expect_err("a second account named Assets:Foo must be refused");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Assets:Foo") && msg.contains("already"),
+        "unhelpful error: {msg}"
+    );
+    assert!(
+        !dir.path().join("accounts/Assets/Foo.toml").exists(),
+        "the duplicate was written anyway"
+    );
+}
