@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +64,6 @@ impl Account {
         self.currencies.is_empty() || self.currencies.iter().any(|c| c == currency)
     }
 }
-
-use std::collections::HashMap;
 
 /// Render an account reference for an error message, whichever half was given.
 pub fn describe_ref(id: Option<&str>, name: Option<&str>) -> String {

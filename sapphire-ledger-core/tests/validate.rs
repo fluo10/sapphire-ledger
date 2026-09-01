@@ -77,6 +77,41 @@ currency = "JPY"
 }
 
 #[test]
+fn a_posting_with_account_id_and_a_stale_name_resolves_on_disk() {
+    let root = tempdir();
+    init_workspace(&root, "JPY").unwrap();
+    write_account(&root, "accounts/Assets/Cash/JPY.toml", ACCOUNT_CASH_JPY);
+    write_transaction(
+        &root,
+        "transactions/2026/05/idlink.toml",
+        r#"
+id = "idlink"
+date = "2026-05-21"
+narration = "renamed account, old file untouched"
+created_at = "2026-05-21T12:00:00+09:00"
+updated_at = "2026-05-21T12:00:00+09:00"
+[[postings]]
+account_id = "acct001"
+account_name = "Assets:Cash:Old:Stale:Name"
+amount = "1000"
+currency = "JPY"
+[[postings]]
+account_id = "acct001"
+account_name = "Assets:Cash:Old:Stale:Name"
+amount = "-1000"
+currency = "JPY"
+"#,
+    );
+
+    let issues = load_workspace(&root).unwrap().validate();
+    assert!(
+        issues.is_empty(),
+        "account_id must resolve on disk even though account_name is stale: {issues:?}"
+    );
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn flags_undefined_account_in_transaction() {
     let root = tempdir();
     init_workspace(&root, "JPY").unwrap();

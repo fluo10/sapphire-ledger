@@ -171,6 +171,7 @@ currency = "JPY"
 "#;
     let assertion: Assertion = toml::from_str(input).expect("assertion parse");
     assert_eq!(assertion.balances.len(), 2);
+    assert_eq!(assertion.account_id.as_deref(), Some("acct003"));
     assert_eq!(
         assertion.balances[0],
         Balance {
