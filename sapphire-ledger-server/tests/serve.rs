@@ -61,9 +61,16 @@ fn state_without_a_key_file_still_builds_but_holds_no_keys() {
     // operator can see it.
     let dir = tempfile::tempdir().expect("tempdir");
     let state = serve::build_state(&dir.path().join("keys.toml")).expect("state builds");
+    let keys = state
+        .keys()
+        .expect("an empty key store is still a key store");
+    // The test's own name claims the store holds no keys; assert it rather
+    // than imply it. This is also the state `run()` warns about, so a
+    // `KeyStore::load` that ever started inventing an entry for a missing
+    // file would silence that warning and go unnoticed here.
     assert!(
-        state.keys().is_some(),
-        "an empty key store is still a key store"
+        !keys.has_usable_key(),
+        "a key file that does not exist must yield a store with no usable key"
     );
 }
 
