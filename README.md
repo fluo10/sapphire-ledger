@@ -16,18 +16,23 @@ Local-first double-entry household ledger that keeps your data alive as plain te
 ```
 sapphire-ledger/
 ├── sapphire-ledger-core/      # Data model, TOML parser/serializer, validation, write path
-├── sapphire-ledger-mcp/       # MCP server logic (library, used by the CLI and by the planned sync server)
+├── sapphire-ledger-mcp/       # MCP server logic (library, used by the CLI and by sapphire-ledger-server)
 ├── sapphire-ledger-cli/       # CLI binary (sapphire-ledger) with stdio MCP server bundled
 ├── sapphire-ledger-desktop/   # Desktop GUI (egui); still a scaffold
-└── sapphire-ledger-server/    # self-hosted sync + MCP server (planned)
+└── sapphire-ledger-server/    # self-hosted MCP server over HTTP, authenticated per device (no /rpc sync yet)
 ```
 
 ## Status
 
 The data model, validation, write path and MCP server work. You can point an
-MCP client at `sapphire-ledger mcp` and have it read and record entries. The
-desktop GUI is still a scaffold, and there are no CLI write commands yet —
-records are created through the MCP tools or by hand.
+MCP client at `sapphire-ledger mcp` and have it read and record entries over
+stdio, or at a `sapphire-ledger-server` instance's `/mcp` and do the same over
+HTTP, authenticated per device (see [`docs/design.md`](docs/design.md#mcp-server)
+for the CLI and the auth model). `/rpc` sync is not built, so a correction to
+what an agent wrote still has to happen on the machine holding the
+workspace's files — the review loop the project exists for is not yet
+closed. The desktop GUI is still a scaffold, and there are no CLI write
+commands yet — records are created through the MCP tools or by hand.
 
 ## License
 

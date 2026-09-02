@@ -373,13 +373,13 @@ sapphire-ledger/
 ├── sapphire-ledger-mcp/       # MCP server logic — LIBRARY only
 ├── sapphire-ledger-cli/       # `sapphire-ledger` binary, embeds stdio MCP
 ├── sapphire-ledger-desktop/   # egui GUI (no MCP transport of its own)
-└── sapphire-ledger-server/    # self-hosted /rpc sync + /mcp (planned)
+└── sapphire-ledger-server/    # self-hosted MCP server over HTTP, per-device auth (no /rpc sync yet)
 ```
 
 The MCP crate is intentionally **a library, not a binary**. The CLI embeds it
-today for the stdio transport; `sapphire-ledger-server` will embed it for the
-HTTP transport once that crate exists. See the [MCP server](#mcp-server)
-section for the details.
+for the stdio transport; `sapphire-ledger-server` embeds it, behind its
+`http-server` feature, for the HTTP transport. See the [MCP
+server](#mcp-server) section for the details.
 
 Mobile builds (potentially with Dioxus) and a VS Code extension are
 deferred — see open follow-ups.
@@ -388,9 +388,12 @@ deferred — see open follow-ups.
 
 Modelled on `sapphire-journal-mcp` as it stands today: a server struct holding
 an `Arc<Mutex<LedgerState>>`, tools declared with rmcp's `#[tool]` macro, and
-a stdio entry point. The HTTP transport arrives with `sapphire-ledger-server`,
-which puts `/rpc` and `/mcp` behind one set of API keys — not with the desktop
-GUI, as this document originally planned.
+a stdio entry point. The HTTP transport is `sapphire-ledger-server`, which
+puts `/mcp` behind the framework's per-device authentication — not with the
+desktop GUI, as this document originally planned. `/rpc` is designed to land
+in the same binary behind the same keys eventually, but it is not mounted
+today; see [Server: `sapphire-ledger-server`](#server-sapphire-ledger-server)
+below.
 
 ### Tools
 
@@ -430,20 +433,82 @@ an `mcp__sapphire-ledger__*` server. `--init` lets the agent create a
 fresh workspace if the target directory isn't one yet (no-op when it
 already is).
 
-### HTTP transport: `sapphire-ledger-server` (planned)
+### Server: `sapphire-ledger-server`
 
-**Not built.** No `sapphire-ledger-server` crate exists yet, and the mcp
-crate has no `http-server` feature — `sapphire-ledger-mcp`'s only shipped
-transport is stdio, via `sapphire-ledger mcp`. This section records the plan
-this document originally assigned to the desktop binary itself; it has since
-moved to a dedicated server crate instead.
+**Built.** `sapphire-ledger-server` is a self-hosted binary that composes
+`sapphire-ledger-mcp`'s `http-server` feature (`mcp_router`) with the
+framework's `remote-server` and `registry` features, and serves `/mcp` behind
+`protect()`. The full reasoning behind every decision below lives in
+[`docs/superpowers/specs/2026-09-02-ledger-server-design.md`](superpowers/specs/2026-09-02-ledger-server-design.md);
+this section covers what a reader needs so as not to be surprised.
 
-The plan: a self-hosted `sapphire-ledger-server` binary puts `/rpc` (sync)
-and `/mcp` behind one set of API keys, rather than the desktop GUI embedding
-an HTTP MCP server directly. Centralizing both endpoints in one process means
-one auth layer to build instead of duplicating it per client. Loopback-only
-binding and the token/API-key requirement before ever listening beyond
-`127.0.0.1` remain the design constraints carried over from the earlier plan.
+**`/rpc` is deliberately not mounted.** The `remote-server` feature is taken
+for `KeyStore` and `protect` — authentication — not for sync: the framework's
+`router()` (the `/rpc` routes) is never merged into this server's
+`axum::Router`. `/rpc` has no client today (the desktop crate is a scaffold,
+the CLI has no sync client), so there is nothing to test a sync server
+against yet. Adding it later is a `.merge()` against the same `ServerState`;
+nothing here has to be undone. Concretely, this means **the review loop the
+project exists for is not yet closed**: an agent can read and write over
+`/mcp`, but a human still has to be on the machine holding the workspace's
+files to review or correct what it wrote.
+
+**The `Host` allowlist is a parameter, not a default.** rmcp refuses any
+request whose `Host` header isn't on an allowlist, and its own default is
+loopback-only. `mcp_router` takes the extra hostnames as an argument and
+always adds loopback on top of them — an empty list from the caller is never
+handed to rmcp, which would read that as "allow every host" instead of
+"loopback only". Bound beyond loopback with no `--allowed-host` at all,
+`sapphire-ledger-server` **refuses to start**: a wide bind with an empty
+allowlist would 403 every request, which is useless rather than dangerous,
+and would present as a client bug rather than a configuration mistake.
+
+**Clients are devices, and every device belongs to a user.** A bearer key
+authenticates a device; it is not itself the unit of identity — the
+framework's registry (`Devices` / `Users`) supplies that, the same way
+`sapphire-agent` already manages its clients. There is no standalone key
+command: `device add` registers a device and mints its key in the same act,
+because a key naming no device is a key nobody can attribute. Retirement
+tombstones a device rather than deleting it, so a `device_id` already written
+into a record still resolves to a name afterward.
+
+Two files, two homes:
+
+- **`.sapphire-ledger/devices.toml` and `users.toml` live in the workspace.**
+  They're content — who the devices and people are — and once `/rpc` exists
+  they sync, which is what lets a `device_id` written on one machine resolve
+  on another.
+- **`keys.toml` lives in this app's host-local cache directory**, not the
+  workspace. It holds secrets; a token that synced would be a token on every
+  machine that ever pulled.
+
+**Duplicate ids are reported, never resolved.** A background watch re-walks
+the workspace once at startup and then every five minutes, and logs any id
+(or, for accounts, any name) claimed by more than one file at `WARN`, naming
+the id and every path carrying it. It does not merge, delete, or re-id
+anything. This matters because two of ledger's own path conventions embed
+mutable data — a transaction's or assertion's path derives from its *date*,
+an account's from its *name* — so a client offline across a rename or a date
+correction can resurrect a stale path under sync and leave one id at two
+files. A duplicated transaction is a wrong balance, so the server surfaces
+the problem loudly rather than guessing at a fix.
+
+CLI:
+
+```
+sapphire-ledger-server --ledger-dir DIR              # serve
+sapphire-ledger-server user add <name>
+sapphire-ledger-server user list
+sapphire-ledger-server device add <name> --user <selector>
+sapphire-ledger-server device list
+sapphire-ledger-server device rotate <selector>
+sapphire-ledger-server device retire <selector>
+```
+
+`last_updated_by` is not implemented. `Authenticated` carries an optional
+`device_id`, and every key this server's CLI mints sets one — that is the
+hook the field will use once it exists, but no record schema has the field
+yet.
 
 ### Library API shape
 
@@ -454,10 +519,10 @@ Mirroring the journal:
 - `SapphireLedgerServer::from_shared(state)` constructor so multiple
   concurrent HTTP sessions can share a single in-memory workspace
   state without each rebuilding it.
-- Shared setup helpers (the journal calls them `prepare_state`,
-  `spawn_periodic_git_sync`) factored out of the stdio entry point so
-  both transports reuse them — the only divergence between stdio and
-  HTTP should be the rmcp transport wiring itself.
+- Shared setup helpers (`prepare_state`, mirroring the journal's naming)
+  factored out of the stdio entry point so both transports reuse them — the
+  only divergence between stdio and HTTP is the rmcp transport wiring
+  itself.
 
 ## Licensing
 
@@ -487,7 +552,11 @@ permissive until there is a reason to tighten it.
 - ✅ `core::ops` write path.
 - ✅ Framework dependency (`AppContext`) + `LedgerState` session object.
 - ✅ MCP server over stdio: read and write tools, via `sapphire-ledger mcp`.
-- 🚧 `sapphire-ledger-server` (`/rpc` + `/mcp`).
+- ✅ `sapphire-ledger-server`: `/mcp` over HTTP, authenticated per device,
+  plus `user`/`device` management and a duplicate-id watch.
+- 🚧 `/rpc` sync — no client exists yet, and reviewing or correcting an
+  agent's write still means being on the machine holding the workspace's
+  files.
 - 🚧 CLI write commands.
 - 🚧 Desktop GUI.
 - 🚧 Price conversion / base-currency reporting.
