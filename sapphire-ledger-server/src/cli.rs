@@ -25,6 +25,10 @@ pub struct Cli {
 
     /// Address to bind. Loopback by default; widening it requires
     /// `--allowed-host`.
+    ///
+    /// This server speaks plain HTTP — TLS is out of scope. A bind past
+    /// loopback puts bearer tokens on the wire in cleartext, so put it
+    /// behind a reverse proxy or on an already-encrypted network.
     #[arg(long, default_value = "127.0.0.1:3838")]
     pub addr: SocketAddr,
 

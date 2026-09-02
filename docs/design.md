@@ -465,6 +465,13 @@ beyond loopback with no `--allowed-host` at all, `sapphire-ledger-server`
 request, which is useless rather than dangerous, and would present as a
 client bug rather than a configuration mistake.
 
+**TLS is out of scope.** `sapphire-ledger-server` speaks plain HTTP and has
+no plans to speak anything else, so any bind past loopback puts every
+device's bearer token on the wire in cleartext. Put it behind a reverse
+proxy that terminates TLS, or reach it over a network that is already
+encrypted (a WireGuard or Tailscale interface, say), rather than exposing
+`--addr` directly.
+
 **Clients are devices, and every device belongs to a user.** A bearer key
 authenticates a device; it is not itself the unit of identity — the
 framework's registry (`Devices` / `Users`) supplies that, the same way
