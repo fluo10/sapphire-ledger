@@ -6,6 +6,8 @@ const LEDGER_DIR_REQUIRED: &str = "--ledger-dir is required (or set SAPPHIRE_LED
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    sapphire_ledger_core::init_app_context();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

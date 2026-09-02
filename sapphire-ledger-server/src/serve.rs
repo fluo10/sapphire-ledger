@@ -16,18 +16,14 @@ use tokio_util::sync::CancellationToken;
 /// the opposite case and do live in the workspace — they are content, and a
 /// device id is only resolvable elsewhere if they travel.
 ///
-/// `LEDGER_CTX` ships with no cache directory injected — `AppContext` never
-/// depends on a platform-path crate itself, so the host app resolves it.
-/// `set_cache_dir` is first-writer-wins and safe to call more than once, so
-/// this both is the injection point and reads the result back.
-pub fn default_keys_path(ledger_dir: &Path) -> anyhow::Result<PathBuf> {
-    let _ = ledger_dir;
-    let platform_cache = dirs::cache_dir()
-        .map(|dir| dir.join("sapphire-ledger"))
-        .context("failed to resolve the platform cache directory")?;
-    sapphire_ledger_core::LEDGER_CTX.set_cache_dir(platform_cache);
-    let cache = sapphire_ledger_core::LEDGER_CTX.cache_dir().to_path_buf();
-    std::fs::create_dir_all(&cache)
+/// `LEDGER_CTX` panics if read before `sapphire_ledger_core::init_app_context`
+/// has run — this function assumes the caller already did that (`main` does,
+/// as its first statement). A path helper that quietly initialised global
+/// state on the side would be a surprise to its next caller and would leave
+/// `LEDGER_CTX`'s data directory still unset for whoever reads that instead.
+pub fn default_keys_path(_ledger_dir: &Path) -> anyhow::Result<PathBuf> {
+    let cache = sapphire_ledger_core::LEDGER_CTX.cache_dir();
+    std::fs::create_dir_all(cache)
         .with_context(|| format!("failed to create {}", cache.display()))?;
     Ok(cache.join("keys.toml"))
 }

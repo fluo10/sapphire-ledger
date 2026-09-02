@@ -4161,6 +4161,7 @@ name = "sapphire-ledger-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dirs",
  "grain-id 0.15.0",
  "rust_decimal",
  "sapphire-framework-workspace",
@@ -4210,7 +4211,6 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
- "dirs",
  "grain-id 0.15.0",
  "http-body-util",
  "humantime",
