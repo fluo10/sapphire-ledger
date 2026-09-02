@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use sapphire_ledger_core::workspace::{ACCOUNTS_DIR, ASSERTIONS_DIR, PRICES_DIR, TRANSACTIONS_DIR};
 use sapphire_ledger_core::{Account, Assertion, PriceEntry, Transaction};
 
 /// How often the watch re-walks the workspace looking for duplicate ids.
@@ -42,51 +43,72 @@ use sapphire_ledger_core::{Account, Assertion, PriceEntry, Transaction};
 const CHECK_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Walk the record directories under `root` and report every id (or, for
-/// accounts, every name) claimed by more than one file.
+/// accounts, every id *and* every name) claimed by more than one file.
 ///
-/// Returns one human-readable line per duplicate, naming the id and every
-/// path carrying it. `ValidationIssue` -- what `Workspace::validate()`
+/// Returns one human-readable line per duplicate, naming the id (or name)
+/// and every path carrying it. `ValidationIssue` -- what `Workspace::validate()`
 /// already returns, and which already flags duplicate ids -- carries the ids
 /// but not the paths, and the paths are what a human needs to fix this. So
 /// this walks the directories itself with `walk_toml_files` rather than
 /// reformatting `validate()`'s output.
 ///
-/// A file that fails to parse is skipped, not fatal: this runs on a timer
-/// against a directory other processes are actively writing to, and one
-/// malformed record must not silence the duplicate report for everything
-/// else. It is logged at `debug`.
+/// A file that fails to parse is skipped, not fatal, and so is a directory
+/// that fails to walk at all (for instance a file removed by another writer
+/// between listing and reading it): this runs on a timer against a
+/// directory other processes are actively writing to, and one bad record or
+/// one raced kind must not silence the duplicate report for the rest. Both
+/// are logged at `debug`, and the four kinds below are walked independently
+/// so a failure in one never discards what the other three found.
 pub fn duplicate_report(root: &Path) -> anyhow::Result<Vec<String>> {
     let mut lines = Vec::new();
-    lines.extend(duplicates_of::<Transaction, _>(
-        root,
-        "transactions",
-        "transaction id",
-        |t| t.id.clone(),
-    )?);
-    lines.extend(duplicates_of::<Assertion, _>(
-        root,
-        "assertions",
-        "assertion id",
-        |a| a.id.clone(),
-    )?);
-    lines.extend(duplicates_of::<PriceEntry, _>(
-        root,
-        "prices",
-        "price id",
-        |p| p.id.clone(),
-    )?);
-    // Accounts are keyed by name, not id: the racy case is a rename, and a
-    // name-only posting resolves by whichever account happens to own that
-    // name -- so two accounts sharing a name is the broken state, even if
-    // their ids differ.
-    lines.extend(duplicates_of::<Account, _>(
-        root,
-        "accounts",
-        "account name",
-        |a| a.name.clone(),
-    )?);
+    extend_or_log(
+        &mut lines,
+        "transaction",
+        duplicates_of::<Transaction, _>(root, TRANSACTIONS_DIR, "transaction id", |t| t.id.clone()),
+    );
+    extend_or_log(
+        &mut lines,
+        "assertion",
+        duplicates_of::<Assertion, _>(root, ASSERTIONS_DIR, "assertion id", |a| a.id.clone()),
+    );
+    extend_or_log(
+        &mut lines,
+        "price",
+        duplicates_of::<PriceEntry, _>(root, PRICES_DIR, "price id", |p| p.id.clone()),
+    );
+    // Accounts need both keys. The path is derived from the account's
+    // *name*, so the canonical raced-rename artifact is one id living at two
+    // paths under two *different* names -- name-grouping alone reports
+    // nothing for that case, because the two names really are distinct.
+    // Id-grouping is what catches it. Name-grouping still earns its own
+    // pass: two accounts that keep distinct ids but claim the same name are
+    // also broken, since a name-only reference would resolve to whichever
+    // one happened to win the lookup.
+    extend_or_log(
+        &mut lines,
+        "account",
+        duplicates_of::<Account, _>(root, ACCOUNTS_DIR, "account id", |a| a.id.clone()),
+    );
+    extend_or_log(
+        &mut lines,
+        "account",
+        duplicates_of::<Account, _>(root, ACCOUNTS_DIR, "account name", |a| a.name.clone()),
+    );
     lines.sort();
     Ok(lines)
+}
+
+/// Fold one kind's duplicate lines into the running report, logging (not
+/// propagating) a failure to walk that kind's directory. A file vanishing
+/// mid-walk because another process is writing to the same tree must not
+/// silence the other kinds' results.
+fn extend_or_log(lines: &mut Vec<String>, kind: &str, result: anyhow::Result<Vec<String>>) {
+    match result {
+        Ok(found) => lines.extend(found),
+        Err(err) => {
+            tracing::debug!("could not walk {kind} records for duplicates: {err:#}");
+        }
+    }
 }
 
 /// Load every `.toml` record of type `T` under `root/dir`, group by the key
@@ -111,7 +133,9 @@ where
         }
     }
 
-    let mut lines: Vec<String> = by_key
+    // Not sorted here: `duplicate_report` sorts the full concatenation of
+    // every kind's lines, so sorting this slice too would be redundant.
+    Ok(by_key
         .into_iter()
         .filter(|(_, paths)| paths.len() > 1)
         .map(|(key, mut paths)| {
@@ -122,9 +146,7 @@ where
                 .collect();
             format!("duplicate {kind} {key}: {}", rendered.join(", "))
         })
-        .collect();
-    lines.sort();
-    Ok(lines)
+        .collect())
 }
 
 /// Render `path` relative to `root` with `/` separators regardless of
