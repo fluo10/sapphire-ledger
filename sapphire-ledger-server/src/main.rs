@@ -1,6 +1,6 @@
 use clap::Parser as _;
 use sapphire_ledger_server::cli::Cli;
-use sapphire_ledger_server::serve;
+use sapphire_ledger_server::{identity, serve};
 
 const LEDGER_DIR_REQUIRED: &str = "--ledger-dir is required (or set SAPPHIRE_LEDGER_SERVER_DIR)";
 
@@ -35,6 +35,6 @@ async fn main() -> anyhow::Result<()> {
             let state = serve::build_state(&keys_path)?;
             serve::run(cli.addr, &ledger_dir, state, &cli.allowed_host).await
         }
-        Some(_) => anyhow::bail!("user/device commands arrive in the next task"),
+        Some(command) => identity::run(command, &ledger_dir, &keys_path),
     }
 }
