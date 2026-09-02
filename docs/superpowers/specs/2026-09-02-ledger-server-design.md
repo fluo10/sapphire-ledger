@@ -148,7 +148,7 @@ Note the hazard is latent until `/rpc` exists — a single writer cannot produce
 - Identity lifecycle: add a user; add a device under it and get a token once; list (token masked, user named); rotate (device id and user kept, token changed); retire (device tombstoned, key revoked, and the id still resolves to a name afterwards — that last part is what makes an id baked into an old record survivable).
 - `device add` against an unknown user is refused, and mints no key. A key with no device must not be reachable through the CLI at all.
 - `protect`: no key store configured refuses everything; a valid bearer passes; an invalid or expired one does not.
-- An authenticated request's `Authenticated.device_id` is the device that owns the key. Nothing consumes it yet, but it is the hook `last_updated_by` will use, and a test now is what keeps it wired.
+- The key a device is issued carries that device's id. Nothing consumes it yet, but it is the hook `last_updated_by` will use, and a test now is what keeps it wired. Asserted against the key store rather than through a live request: `/mcp` is rmcp's service, not ours to instrument, and adding a route purely to observe `Authenticated` would be inventing an endpoint to test a guarantee we can check one level down.
 - `Host` allowlist: loopback passes with an empty configured list; a configured host passes; an unlisted host gets 403. This is the quiet failure, so it gets an explicit test rather than trust.
 - Refuse-to-start: a wide `--addr` with no `--allowed-host` exits non-zero with a message naming the flag.
 - End to end: an MCP client calls one read tool and one write tool over HTTP and gets valid results.
