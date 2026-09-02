@@ -44,5 +44,6 @@ This repository contains components under different licenses:
 | `sapphire-ledger-mcp` | MIT OR Apache-2.0 |
 | `sapphire-ledger-cli` | MIT OR Apache-2.0 |
 | `sapphire-ledger-desktop` | MIT OR Apache-2.0 |
+| `sapphire-ledger-server` | MIT OR Apache-2.0 |
 
 See the `LICENSE-MIT` / `LICENSE-APACHE` files in each component's directory for the full license text.

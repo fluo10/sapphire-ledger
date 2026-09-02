@@ -458,10 +458,12 @@ request whose `Host` header isn't on an allowlist, and its own default is
 loopback-only. `mcp_router` takes the extra hostnames as an argument and
 always adds loopback on top of them — an empty list from the caller is never
 handed to rmcp, which would read that as "allow every host" instead of
-"loopback only". Bound beyond loopback with no `--allowed-host` at all,
-`sapphire-ledger-server` **refuses to start**: a wide bind with an empty
-allowlist would 403 every request, which is useless rather than dangerous,
-and would present as a client bug rather than a configuration mistake.
+"loopback only". `--addr` (default `127.0.0.1:3838`) is what widens the
+bind, and `--allowed-host` (repeatable) is what widens this list. Bound
+beyond loopback with no `--allowed-host` at all, `sapphire-ledger-server`
+**refuses to start**: a wide bind with an empty allowlist would 403 every
+request, which is useless rather than dangerous, and would present as a
+client bug rather than a configuration mistake.
 
 **Clients are devices, and every device belongs to a user.** A bearer key
 authenticates a device; it is not itself the unit of identity — the
@@ -505,6 +507,11 @@ sapphire-ledger-server device rotate <selector>
 sapphire-ledger-server device retire <selector>
 ```
 
+`--ledger-dir` (or `SAPPHIRE_LEDGER_SERVER_DIR`) is required for every one of
+these, not only `serve`: the user/device registry lives under the ledger
+root, so `identity::run` needs it to resolve the workspace before it can add,
+list, rotate or retire anything.
+
 `last_updated_by` is not implemented. `Authenticated` carries an optional
 `device_id`, and every key this server's CLI mints sets one — that is the
 hook the field will use once it exists, but no record schema has the field
@@ -521,8 +528,11 @@ Mirroring the journal:
   state without each rebuilding it.
 - Shared setup helpers (`prepare_state`, mirroring the journal's naming)
   factored out of the stdio entry point so both transports reuse them — the
-  only divergence between stdio and HTTP is the rmcp transport wiring
-  itself.
+  only divergence in *building the ledger state* is the rmcp transport
+  wiring itself. (Beyond state setup, the two paths do differ:
+  `sapphire-ledger-server` hardcodes `prepare_state`'s `init` argument to
+  `false` where the CLI threads `--init` through, and it additionally wraps
+  the router in `protect()` and spawns the duplicate-id watch.)
 
 ## Licensing
 
@@ -532,6 +542,7 @@ Mirroring the journal:
 | `sapphire-ledger-mcp`  | MIT OR Apache-2.0 |
 | `sapphire-ledger-cli`  | MIT OR Apache-2.0 |
 | `sapphire-ledger-desktop` | MIT OR Apache-2.0 (initial) |
+| `sapphire-ledger-server` | MIT OR Apache-2.0 |
 
 Permissive everywhere for MVP. If a desktop or mobile build is eventually
 distributed through an official store (Mac App Store, Microsoft Store,
