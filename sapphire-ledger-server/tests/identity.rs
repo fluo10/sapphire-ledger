@@ -102,6 +102,49 @@ fn a_device_under_an_unknown_user_is_refused_and_mints_no_key() {
 }
 
 #[test]
+fn a_bad_expiry_registers_no_device() {
+    // `--expires-in` is parsed before `Devices::add` runs, deliberately.
+    // `devices.toml` is workspace content that syncs to every machine, so a
+    // `device add` that fails partway through must not leave a junk entry
+    // behind -- and `Devices::add` refuses a duplicate name, so the entry
+    // would also block the obvious retype with the duration spelled right.
+    //
+    // Moving the parse back after `Devices::add` leaves every other test on
+    // this branch passing, which is why this one exists.
+    let f = fixture();
+    add_user(&f, "me");
+
+    run(
+        &f,
+        Command::Device(DeviceCommand::Add {
+            name: "laptop".to_string(),
+            user: "me".to_string(),
+            description: None,
+            expires_in: Some("nonsense".to_string()),
+        }),
+    )
+    .expect_err("a malformed --expires-in must be refused");
+
+    assert!(
+        !devices(&f).entries().iter().any(|d| d.name == "laptop"),
+        "a refused `device add` must leave no entry in the synced registry"
+    );
+    assert!(keys(&f).entries().is_empty(), "and no key either");
+
+    // The name is therefore still free: the retype succeeds.
+    run(
+        &f,
+        Command::Device(DeviceCommand::Add {
+            name: "laptop".to_string(),
+            user: "me".to_string(),
+            description: None,
+            expires_in: Some("90d".to_string()),
+        }),
+    )
+    .expect("the same name must still be available after the failure");
+}
+
+#[test]
 fn rotate_keeps_the_device_and_changes_the_token() {
     let f = fixture();
     add_user(&f, "me");
