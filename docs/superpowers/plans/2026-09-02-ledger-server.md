@@ -106,22 +106,19 @@ use axum::http::{Request, StatusCode};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt as _;
 
-fn router(allowed: &[String]) -> axum::Router {
+/// The `TempDir` is held for the whole request rather than leaked: two of
+/// these cases pass the `Host` check and reach the handler, which needs the
+/// workspace to still be on disk.
+async fn status_for_host(allowed: &[String], host: &str) -> StatusCode {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = sapphire_ledger_mcp::server::prepare_state(Some(dir.path()), true)
         .expect("init test ledger");
-    // The TempDir is dropped here on purpose: every one of these tests
-    // fails at the Host check, before any handler touches the workspace.
-    std::mem::forget(dir);
-    sapphire_ledger_mcp::http::mcp_router(
+    let router = sapphire_ledger_mcp::http::mcp_router(
         Arc::new(Mutex::new(state)),
         CancellationToken::new(),
         None,
         allowed,
-    )
-}
-
-async fn status_for_host(allowed: &[String], host: &str) -> StatusCode {
+    );
     let request = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -130,11 +127,9 @@ async fn status_for_host(allowed: &[String], host: &str) -> StatusCode {
         .header("accept", "application/json, text/event-stream")
         .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
         .expect("request");
-    router(allowed)
-        .oneshot(request)
-        .await
-        .expect("response")
-        .status()
+    let status = router.oneshot(request).await.expect("response").status();
+    drop(dir);
+    status
 }
 
 #[tokio::test]
@@ -370,7 +365,7 @@ redb-store = ["sapphire-ledger-core/redb-store", "sapphire-ledger-mcp/redb-store
 [dependencies]
 sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
 sapphire-ledger-mcp = { path = "../sapphire-ledger-mcp", version = "0.1.0", default-features = false, features = ["http-server"] }
-sapphire-framework = { workspace = true, features = ["remote-server", "registry"] }
+sapphire-framework = { workspace = true, features = ["workspace", "remote-server", "registry"] }
 grain-id.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
@@ -780,7 +775,7 @@ Framework signatures this task calls, verbatim:
 - `Users::load(path: &Path) -> Result<Users>`, `.add(name: &str, description: Option<String>) -> Result<User>`, `.entries() -> &[User]`, `.resolve(selector: &str) -> Result<&User>`
 - `Devices::load(path: &Path) -> Result<Devices>`, `.add(name: &str, description: Option<String>, user_id: Option<GrainId>) -> Result<Device>`, `.entries() -> &[Device]`, `.get(id: GrainId) -> Option<&Device>`, `.resolve(selector: &str) -> Result<&Device>`, `.retire(selector: &str) -> Result<Device>`
 - `KeyStore::load(path: &Path) -> Result<KeyStore>`, `.generate(prefix: &str, id: Option<Uuid>, device_id: Option<GrainId>, label: Option<String>, expires_at: Option<DateTime<Utc>>) -> Result<KeyEntry>`, `.rotate(prefix: &str, selector: &str, expires_at: Option<DateTime<Utc>>) -> Result<KeyEntry>`, `.revoke(selector: &str) -> Result<KeyEntry>`, `.entries() -> &[KeyEntry]`
-- `Workspace::devices_path() -> PathBuf`, `Workspace::users_path() -> PathBuf`
+- `Workspace::from_root(ctx: &'static AppContext, root: &Path) -> Result<Workspace>`, then `.devices_path() -> PathBuf` / `.users_path() -> PathBuf`. Pass `&sapphire_ledger_core::LEDGER_CTX` — it is a `pub static`, so it already has the `'static` lifetime this wants. `from_root` errors unless the `.sapphire-ledger` marker directory exists, which `init_workspace` creates.
 - `Device { id: GrainId, name: String, description: Option<String>, user_id: Option<GrainId>, created_at, retired_at: Option<_> }`, `.is_retired() -> bool`
 - `KeyEntry { token: String, id: Uuid, device_id: Option<GrainId>, label: Option<String>, created_at, rotated_at, expires_at }`
 
@@ -831,9 +826,19 @@ fn add_device(f: &Fixture, name: &str, user: &str) -> anyhow::Result<()> {
     }))
 }
 
+fn workspace(f: &Fixture) -> sapphire_framework::workspace::Workspace {
+    // `LEDGER_CTX` is a `pub static`, which is exactly the `&'static AppContext`
+    // this takes. `from_root` requires the `.sapphire-ledger` marker directory,
+    // which `init_workspace` created.
+    sapphire_framework::workspace::Workspace::from_root(
+        &sapphire_ledger_core::LEDGER_CTX,
+        &f.ledger,
+    )
+    .expect("workspace")
+}
+
 fn devices(f: &Fixture) -> sapphire_framework::registry::Devices {
-    let ws = sapphire_ledger_core::LEDGER_CTX.workspace_at(&f.ledger).expect("workspace");
-    sapphire_framework::registry::Devices::load(&ws.devices_path()).expect("devices")
+    sapphire_framework::registry::Devices::load(&workspace(f).devices_path()).expect("devices")
 }
 
 fn keys(f: &Fixture) -> sapphire_framework::remote_server::KeyStore {
@@ -1208,4 +1213,6 @@ git commit -m "docs: describe the server that now exists"
 
 **Type consistency.** `mcp_router`'s four parameters are identical in Task 1's definition and Task 2's call. `serve::{default_keys_path, build_state, check_exposure, run}` match between Task 2's interface block, its implementation and its tests. `identity::run(command, ledger_dir, keys_path)` matches between Task 3's interface block, the test's `run` helper and `main.rs`'s call arm. `watch::{duplicate_report, spawn}` match between Task 4's interface block, its tests and `serve.rs`'s use. `Command`/`UserCommand`/`DeviceCommand` variants are defined once in Task 2's `cli.rs` and constructed by name in Task 3's tests.
 
-**Known risks.** `sapphire_ledger_core::LEDGER_CTX.workspace_at(...)` is used in Task 3's test fixture to reach `devices_path()`; confirm that method's exact name against the framework's `AppContext` before writing it, and use whatever the crate actually exposes for "open the workspace rooted here". `humantime::parse_duration` returns `std::time::Duration`, so the conversion to `chrono::Duration` needs `chrono::Duration::from_std`, which is fallible for very large values. Both are the kind of thing the first compile settles.
+**Known risks.** `humantime::parse_duration` returns `std::time::Duration`, so the conversion to `chrono::Duration` needs `chrono::Duration::from_std`, which is fallible for very large values — the kind of thing the first compile settles.
+
+**Corrected before execution.** An earlier draft reached the registry paths through `LEDGER_CTX.workspace_at(...)`, which does not exist; `AppContext` has no such method. The route is `Workspace::from_root(&LEDGER_CTX, root)`, which also means the server crate needs the framework facade's `workspace` feature alongside `remote-server` and `registry`. Both are fixed above. A draft of Task 1's test helper also leaked its `TempDir` via `std::mem::forget`, on the reasoning that every case fails at the `Host` check — but two of the four pass that check and reach the handler, so the workspace has to still exist. The helper now holds the directory across the request.
