@@ -11,6 +11,7 @@ keywords = ["accounting", "ledger", "mcp", "double-entry"]
 [features]
 default = ["redb-store"]
 redb-store = ["sapphire-ledger-core/redb-store"]
+http-server = ["rmcp/transport-streamable-http-server", "dep:axum", "dep:tokio-util"]
 
 [dependencies]
 sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
@@ -24,6 +25,17 @@ rust_decimal.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"], optional = true }
+tokio-util = { version = "0.7", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tower = { version = "0.5", features = ["util"] }
+tokio-util = "0.7"
+http-body-util = "0.1"
+
+[[test]]
+name = "http_router"
+path = "tests/http_router.rs"
+required-features = ["http-server"]

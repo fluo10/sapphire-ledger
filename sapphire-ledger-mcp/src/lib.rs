@@ -5,4 +5,10 @@
 
 pub mod server;
 
+#[cfg(feature = "http-server")]
+pub mod http;
+
 pub use server::{SapphireLedgerServer, run};
+
+#[cfg(feature = "http-server")]
+pub use http::mcp_router;
