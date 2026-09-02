@@ -81,6 +81,11 @@ pub enum DeviceCommand {
     ///
     /// This REPLACES the expiry rather than carrying the old one over:
     /// omitting the flag makes the new token non-expiring.
+    ///
+    /// The old token stops working immediately in this process, but a
+    /// running server only picks the change up when it next reloads the
+    /// key file (e.g. on restart) — `ServerState` holds a snapshot taken
+    /// at start-up and has no reload path.
     Rotate {
         /// The device, by name or id.
         selector: String,
@@ -89,6 +94,13 @@ pub enum DeviceCommand {
     },
     /// Retire a device: tombstone it and revoke its key. The id still
     /// resolves to a name afterwards, so records that named it stay readable.
+    ///
+    /// Revocation is NOT live. The key stops working immediately in this
+    /// process, but a running server only picks the change up when it next
+    /// reloads the key file (e.g. on restart) — `ServerState` holds a
+    /// snapshot taken at start-up and has no reload path. Retiring a
+    /// compromised device therefore does not cut its access until the
+    /// server is restarted.
     Retire {
         /// The device, by name or id.
         selector: String,

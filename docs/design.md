@@ -474,6 +474,14 @@ because a key naming no device is a key nobody can attribute. Retirement
 tombstones a device rather than deleting it, so a `device_id` already written
 into a record still resolves to a name afterward.
 
+**Rotation and retirement are not live.** A running server authenticates
+against a snapshot of the key file taken at start-up — `ServerState` has no
+reload path — so `device rotate` and `device retire` only take effect when
+the server is restarted, and until then it keeps accepting the old token.
+`device rotate`, `device retire` and `device list` all say so on stderr, and
+if you are retiring a device because it was compromised, restarting the
+server is the step that actually cuts its access.
+
 Two files, two homes:
 
 - **`.sapphire-ledger/devices.toml` and `users.toml` live in the workspace.**

@@ -155,6 +155,16 @@ fn run_device(
                     device.id, device.name
                 );
             }
+            // Say it here rather than let an operator infer live revocation
+            // from a success message. `ServerState` holds the key file as it
+            // was at start-up and has no reload path, so a rotation or a
+            // retirement -- including one made to cut off a compromised
+            // device -- does not take effect until the server restarts.
+            // stderr, because stdout is the token contract.
+            eprintln!(
+                "note: a running server holds the key file as it was at startup, so a \
+                 rotation or retirement only takes effect when it is restarted"
+            );
             Ok(())
         }
         DeviceCommand::Rotate {
@@ -179,6 +189,7 @@ fn run_device(
                 .with_context(|| format!("failed to rotate the key for device {}", device.id))?;
 
             eprintln!("rotated the key for device {} ({})", device.name, device.id);
+            eprintln!("note: a running server keeps accepting the old token until it is restarted");
             println!("{}", rotated.token);
             Ok(())
         }
@@ -201,6 +212,15 @@ fn run_device(
             }
 
             eprintln!("retired device {} ({})", device.name, device.id);
+            // Without this line "retired" reads as "access cut", which is
+            // false for an already-running server: it authenticates against
+            // the snapshot of the key file it loaded at start-up. An
+            // operator retiring a compromised device has to restart the
+            // server before the old token stops working.
+            eprintln!(
+                "note: a running server keeps accepting the revoked token until it is \
+                 restarted -- restart it now if this device was compromised"
+            );
             Ok(())
         }
     }
