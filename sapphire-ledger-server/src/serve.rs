@@ -32,8 +32,9 @@ pub fn default_keys_path(_ledger_dir: &Path) -> anyhow::Result<PathBuf> {
 /// no workspace store, because `/rpc` is not mounted.
 ///
 /// `data_dir` is where the framework would keep per-workspace sync state. It
-/// is required by the constructor and unused here; the cache directory is the
-/// honest place for something that will never be written.
+/// is required by the constructor and unused here, so it is set to the key
+/// file's own directory -- not necessarily the cache directory: with
+/// `--keys` pointing elsewhere, it isn't. Harmless while nothing writes it.
 pub fn build_state(keys_path: &Path) -> anyhow::Result<Arc<ServerState>> {
     let store = KeyStore::load(keys_path)
         .with_context(|| format!("failed to open the key file {}", keys_path.display()))?;
@@ -80,6 +81,19 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     check_exposure(addr, allowed_hosts)?;
 
+    // `build_state` always attaches a key store, so `protect` installs its
+    // authenticating layer rather than its refusing one -- with zero usable
+    // keys, every request just 401s from here on, silently. Unlike the wide
+    // bind `check_exposure` refuses above, an empty key store is a
+    // legitimate transient state while someone is setting up, so this only
+    // warns instead of refusing to start.
+    if !state.keys().is_some_and(|keys| keys.has_usable_key()) {
+        tracing::warn!(
+            "no usable API key configured -- every request will be refused until \
+             the key file names at least one unexpired key"
+        );
+    }
+
     let ledger_state = sapphire_ledger_mcp::server::prepare_state(Some(ledger_dir), false)?;
     let shared = Arc::new(std::sync::Mutex::new(ledger_state));
 
@@ -97,6 +111,8 @@ pub async fn run(
         .with_context(|| format!("failed to bind {addr}"))?;
     tracing::info!("sapphire-ledger-server listening on http://{addr}/mcp");
 
+    let watch = crate::watch::spawn(ledger_dir.to_path_buf());
+
     let shutdown = cancel.clone();
     let result = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
@@ -104,6 +120,8 @@ pub async fn run(
             shutdown.cancel();
         })
         .await;
+
+    watch.abort();
 
     result.context("server failed")
 }

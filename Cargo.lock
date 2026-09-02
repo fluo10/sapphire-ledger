@@ -4216,6 +4216,7 @@ dependencies = [
  "sapphire-framework",
  "sapphire-ledger-core",
  "sapphire-ledger-mcp",
+ "serde",
  "tempfile",
  "tokio",
  "tokio-util",

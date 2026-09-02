@@ -3,3 +3,4 @@
 pub mod cli;
 pub mod identity;
 pub mod serve;
+pub mod watch;
