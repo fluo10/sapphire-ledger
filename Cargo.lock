@@ -1974,25 +1974,13 @@ dependencies = [
 
 [[package]]
 name = "grain-id"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df5e26a703bae8b14765dca3daa2716411cbce6037cc59df15f95df8ae14e858"
-dependencies = [
- "prost-build",
- "rand 0.10.2",
- "schemars",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "grain-id"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd4849fe30cb37947df0d92f9da8624524e5d260f12cafb47ce9400334eda0f"
 dependencies = [
  "prost-build",
  "rand 0.10.2",
+ "schemars",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -4061,7 +4049,7 @@ version = "0.1.0"
 source = "git+https://github.com/fluo10/sapphire-framework?branch=main#076d12961f90447751cf4cc2c30e516b4eb04f4e"
 dependencies = [
  "chrono",
- "grain-id 0.16.0",
+ "grain-id",
  "serde",
  "thiserror 2.0.18",
  "toml",
@@ -4076,7 +4064,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "getrandom 0.4.2",
- "grain-id 0.16.0",
+ "grain-id",
  "redb",
  "sapphire-framework-blob",
  "sapphire-framework-retrieve",
@@ -4162,7 +4150,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dirs",
- "grain-id 0.15.0",
+ "grain-id",
  "rust_decimal",
  "sapphire-framework-workspace",
  "serde",
