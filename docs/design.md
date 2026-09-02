@@ -497,7 +497,13 @@ Two files, two homes:
   on another.
 - **`keys.toml` lives in this app's host-local cache directory**, not the
   workspace. It holds secrets; a token that synced would be a token on every
-  machine that ever pulled.
+  machine that ever pulled. It sits in that ledger's *own* subdirectory of
+  the cache (`{cache}/{path_uuid}/keys.toml`), not the cache root, so a
+  personal and a business ledger on one host do not share a credential —
+  `protect()` only checks that a bearer names a key, never that the key's
+  `device_id` belongs to the workspace being served, so a shared key file
+  would let a device registered under one ledger authenticate in full
+  against the other. Pass `--keys` to put it somewhere else.
 
 **Duplicate ids are reported, never resolved.** A background watch re-walks
 the workspace once at startup and then every five minutes, and logs any id

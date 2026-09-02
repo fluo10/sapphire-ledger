@@ -9,21 +9,37 @@ use sapphire_framework::remote_server::{KeyStore, ServerState, protect};
 use tokio_util::sync::CancellationToken;
 
 /// Where the key file goes when `--keys` is not given: this app's cache
-/// directory, **not** the workspace.
+/// directory, **not** the workspace — and within it, the subdirectory
+/// belonging to *this* ledger rather than the cache root.
 ///
-/// The workspace is what syncs once `/rpc` exists, and a token that syncs is
-/// a token on every machine that ever pulled. The device and user tables are
-/// the opposite case and do live in the workspace — they are content, and a
-/// device id is only resolvable elsewhere if they travel.
+/// Two axes, and both matter:
+///
+/// **Cache, not workspace.** The workspace is what syncs once `/rpc` exists,
+/// and a token that syncs is a token on every machine that ever pulled. The
+/// device and user tables are the opposite case and do live in the workspace
+/// — they are content, and a device id is only resolvable elsewhere if they
+/// travel.
+///
+/// **Per workspace, not per host.** `cache_dir_for` gives
+/// `{cache}/{path_uuid}/`, so a personal ledger and a business ledger on one
+/// machine get separate key files. Sharing one would mean a device
+/// registered under the first authenticates in full against the second,
+/// because `protect()` checks that a bearer names *a* key — it never
+/// cross-checks that key's `device_id` against the served workspace's
+/// `devices.toml`. That would also break `last_updated_by` before it is
+/// written: the field holds a `device_id` and its resolution is supposed to
+/// complete inside this application, which it cannot if a record carries an
+/// id no local `devices.toml` knows. `sapphire-journal-server` splits the
+/// same way, for the same reason.
 ///
 /// `LEDGER_CTX` panics if read before `sapphire_ledger_core::init_app_context`
 /// has run — this function assumes the caller already did that (`main` does,
 /// as its first statement). A path helper that quietly initialised global
 /// state on the side would be a surprise to its next caller and would leave
 /// `LEDGER_CTX`'s data directory still unset for whoever reads that instead.
-pub fn default_keys_path(_ledger_dir: &Path) -> anyhow::Result<PathBuf> {
-    let cache = sapphire_ledger_core::LEDGER_CTX.cache_dir();
-    std::fs::create_dir_all(cache)
+pub fn default_keys_path(ledger_dir: &Path) -> anyhow::Result<PathBuf> {
+    let cache = sapphire_ledger_core::LEDGER_CTX.cache_dir_for(ledger_dir);
+    std::fs::create_dir_all(&cache)
         .with_context(|| format!("failed to create {}", cache.display()))?;
     Ok(cache.join("keys.toml"))
 }
