@@ -102,11 +102,19 @@ fn run_device(
                 .with_context(|| format!("unknown user {user:?}"))?
                 .id;
 
+            // Validate all input -- including `--expires-in` -- before the
+            // first mutation. `devices.toml` is workspace content that syncs
+            // to every machine, so a device add that fails partway through
+            // must not leave a junk entry behind: a bad duration caught only
+            // after `Devices::add` would take the name with it, and
+            // `Devices::add` refuses a duplicate name outright, so even the
+            // obvious retype would fail.
+            let expires_at = parse_expires_in(expires_in.as_deref())?;
+
             let mut devices =
                 Devices::load(&workspace.devices_path()).context("failed to load devices.toml")?;
             let device = add_device_retrying(&mut devices, &name, description, user_id)?;
 
-            let expires_at = parse_expires_in(expires_in.as_deref())?;
             let mut keys = KeyStore::load(keys_path)
                 .with_context(|| format!("failed to open the key file {}", keys_path.display()))?;
             let key = keys
@@ -241,9 +249,16 @@ fn mask_token(token: &str) -> String {
 }
 
 fn parse_expires_in(s: Option<&str>) -> anyhow::Result<Option<chrono::DateTime<Utc>>> {
-    s.map(parse_duration)
-        .transpose()
-        .map(|d| d.map(|d| Utc::now() + d))
+    let Some(s) = s else { return Ok(None) };
+    let duration = parse_duration(s)?;
+    // `DateTime<Utc> + Duration` panics on overflow rather than returning an
+    // error, and `humantime` happily accepts a duration far outside chrono's
+    // representable range (e.g. `1000000years`). Use the checked form so a
+    // wild duration is a normal error, not a crash.
+    let expires_at = Utc::now()
+        .checked_add_signed(duration)
+        .with_context(|| format!("{s:?} is too far in the future to represent"))?;
+    Ok(Some(expires_at))
 }
 
 /// Parse a duration like `90d` or `12h` (anything `humantime::parse_duration`

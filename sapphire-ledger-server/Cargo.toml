@@ -21,7 +21,6 @@ redb-store = ["sapphire-ledger-core/redb-store", "sapphire-ledger-mcp/redb-store
 sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
 sapphire-ledger-mcp = { path = "../sapphire-ledger-mcp", version = "0.1.0", default-features = false, features = ["http-server"] }
 sapphire-framework = { workspace = true, features = ["workspace", "remote-server", "registry"] }
-grain-id.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
 tokio-util.workspace = true

@@ -147,6 +147,13 @@ fn a_retired_device_keeps_resolving_to_its_name() {
     add_user(&f, "me");
     add_device(&f, "laptop", "me").expect("device add");
     let device_id = devices(&f).resolve("laptop").expect("device").id;
+    let token = keys(&f)
+        .entries()
+        .iter()
+        .find(|k| k.device_id == Some(device_id))
+        .expect("key")
+        .token
+        .clone();
 
     run(
         &f,
@@ -165,8 +172,9 @@ fn a_retired_device_keeps_resolving_to_its_name() {
     assert_eq!(device.name, "laptop");
 
     assert!(
-        keys(&f).authenticate("unused").is_none(),
-        "sanity: nothing authenticates against a bogus token"
+        keys(&f).authenticate(&token).is_none(),
+        "retiring a device must revoke its key -- its real token, not a bogus \
+         one, must stop authenticating"
     );
 }
 
