@@ -82,9 +82,11 @@ This is not a token bucket with labels bolted on. The reason is the one thing a 
 ### Two files, two homes, and the reason for the split
 
 - **`.sapphire-ledger/devices.toml` and `users.toml` live in the workspace.** They are *content*: who the devices and people are. Once `/rpc` lands they sync, which is what makes a `device_id` written on one machine resolvable on another.
-- **`keys.toml` lives in the host-local cache directory**, beside where the journal server puts its own. It holds *secrets*. A token that syncs is a token on every machine that ever pulled.
+- **`keys.toml` lives in the host-local cache directory, under a subdirectory derived from the ledger's own root path** — `{cache}/{path_uuid}/keys.toml`, which is what `AppContext::cache_dir_for` computes, and where the journal server puts its own. It holds *secrets*. A token that syncs is a token on every machine that ever pulled.
 
 The registry is shared; the credential is not.
+
+**Per workspace, not per host.** The first draft of this section said only "the host-local cache directory", and the implementation built exactly that — one `keys.toml` for the machine. That is wrong, because `protect()` never cross-checks a key's `device_id` against the workspace being served: two ledgers on one host would share a credential, so a device registered under a personal ledger would authenticate fully against a business one. It also produces, from the second ledger's point of view, precisely the thing this design exists to prevent — a key that names no device — and it would falsify `last_updated_by` before that field is even written, since a record could carry a `device_id` absent from its own `devices.toml`.
 
 ### CLI
 
