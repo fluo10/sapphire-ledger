@@ -88,6 +88,31 @@ pub fn check_exposure(addr: SocketAddr, allowed_hosts: &[String]) -> anyhow::Res
     )
 }
 
+/// Build the whole router this process serves: `/mcp` from
+/// `sapphire-ledger-mcp`, wrapped in the framework's `protect`.
+///
+/// Split out of [`run`] so the composition is testable. [`run`] binds a
+/// socket, which a test cannot drive; everything above the socket -- that
+/// `protect` is actually applied, that a valid bearer gets through, that
+/// `/rpc` is not mounted -- is the part worth pinning, and a `Router` can be
+/// called directly with `tower::ServiceExt::oneshot`.
+///
+/// **`/rpc` is deliberately absent.** The framework's `router()` is never
+/// merged here: `remote-server` is taken for `KeyStore` and `protect`, not
+/// for sync, and sync has no client yet. Mounting it later is a `.merge()`
+/// against this same `ServerState`.
+pub fn build_router(
+    state: Arc<ServerState>,
+    ledger_dir: &Path,
+    allowed_hosts: &[String],
+    cancel: CancellationToken,
+) -> anyhow::Result<axum::Router> {
+    let ledger_state = sapphire_ledger_mcp::server::prepare_state(Some(ledger_dir), false)?;
+    let shared = Arc::new(std::sync::Mutex::new(ledger_state));
+    let mcp = sapphire_ledger_mcp::http::mcp_router(shared, cancel, None, allowed_hosts);
+    Ok(protect(state, mcp))
+}
+
 /// Serve until Ctrl-C or SIGTERM, then drain.
 pub async fn run(
     addr: SocketAddr,
@@ -110,17 +135,13 @@ pub async fn run(
         );
     }
 
-    let ledger_state = sapphire_ledger_mcp::server::prepare_state(Some(ledger_dir), false)?;
-    let shared = Arc::new(std::sync::Mutex::new(ledger_state));
-
     let cancel = CancellationToken::new();
-    let mcp = sapphire_ledger_mcp::http::mcp_router(
-        Arc::clone(&shared),
-        cancel.clone(),
-        None,
+    let app = build_router(
+        Arc::clone(&state),
+        ledger_dir,
         allowed_hosts,
-    );
-    let app = protect(Arc::clone(&state), mcp);
+        cancel.clone(),
+    )?;
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
