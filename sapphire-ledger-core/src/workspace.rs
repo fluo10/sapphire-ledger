@@ -14,6 +14,7 @@ pub const CACHE_FILE: &str = "cache.sqlite";
 pub const TRANSACTIONS_DIR: &str = "transactions";
 pub const ACCOUNTS_DIR: &str = "accounts";
 pub const ASSERTIONS_DIR: &str = "assertions";
+pub const PRICES_DIR: &str = "prices";
 
 pub const TOML_EXTENSION: &str = "toml";
 
@@ -53,9 +54,12 @@ pub fn account_relative_path(name: &str) -> Result<PathBuf> {
 /// workspace root (e.g. `accounts/Assets/Cash/USD.toml`), reconstruct the
 /// account name `"Assets:Cash:USD"`.
 pub fn account_name_from_relative_path(rel: &Path) -> Result<String> {
-    let stripped = rel
-        .strip_prefix(ACCOUNTS_DIR)
-        .map_err(|_| Error::Validation(format!("path is not under {ACCOUNTS_DIR}/: {}", rel.display())))?;
+    let stripped = rel.strip_prefix(ACCOUNTS_DIR).map_err(|_| {
+        Error::Validation(format!(
+            "path is not under {ACCOUNTS_DIR}/: {}",
+            rel.display()
+        ))
+    })?;
     let mut segments: Vec<String> = Vec::new();
     let components: Vec<_> = stripped.components().collect();
     if components.is_empty() {
@@ -102,6 +106,14 @@ pub fn assertion_relative_path(date: NaiveDate, id: &str) -> PathBuf {
         .join(format!("{id}.{TOML_EXTENSION}"))
 }
 
+/// Relative path for a price-log entry: `prices/{year}/{MM}/{id}.toml`.
+pub fn price_relative_path(date: NaiveDate, id: &str) -> PathBuf {
+    PathBuf::from(PRICES_DIR)
+        .join(format!("{:04}", date.year()))
+        .join(format!("{:02}", date.month()))
+        .join(format!("{id}.{TOML_EXTENSION}"))
+}
+
 /// Create a new sapphire-ledger workspace at `target`. Creates the directory
 /// if missing. Errors if `.sapphire-ledger/` already exists there.
 pub fn init_workspace(target: &Path, base_currency: &str) -> Result<()> {
@@ -117,6 +129,7 @@ pub fn init_workspace(target: &Path, base_currency: &str) -> Result<()> {
     fs::create_dir_all(target.join(TRANSACTIONS_DIR))?;
     fs::create_dir_all(target.join(ACCOUNTS_DIR))?;
     fs::create_dir_all(target.join(ASSERTIONS_DIR))?;
+    fs::create_dir_all(target.join(PRICES_DIR))?;
 
     let config = Config {
         schema_version: CURRENT_SCHEMA_VERSION,

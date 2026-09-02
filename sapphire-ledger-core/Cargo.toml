@@ -8,9 +8,18 @@ repository.workspace = true
 categories = ["finance", "filesystem", "data-structures"]
 keywords = ["accounting", "ledger", "double-entry", "household", "plain-text"]
 
+[features]
+default = ["redb-store"]
+redb-store = ["sapphire-workspace/redb-store"]
+
 [dependencies]
 serde.workspace = true
 chrono.workspace = true
+grain-id.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 rust_decimal.workspace = true
+sapphire-workspace.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

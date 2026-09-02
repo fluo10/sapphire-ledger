@@ -33,22 +33,24 @@ them with `rust_decimal::Decimal` via `#[serde(with = "rust_decimal::serde::str"
 
 ## File granularity: one record, one file
 
-The fundamental rule is **one record = one file**. Two people (or a person
-and an AI) editing different receipts touch different files, so git merges
-become trivial.
+The fundamental rule is **one record = one file** — a transaction, an
+account, an assertion, or a price-log entry. Two people (or a person and an
+AI) editing different records touch different files, so git merges become
+trivial.
 
 ```
 my-ledger/
 ├── .sapphire-ledger/
 │   ├── config.toml          # workspace config (git-tracked)
-│   ├── .gitignore           # ignores cache.sqlite
-│   └── cache.sqlite         # local SQLite cache (planned, gitignored)
+│   └── .gitignore           # vestigial: still lists cache.sqlite
 ├── accounts/
 │   └── {Type}/.../{Leaf}.toml
 ├── transactions/
-│   └── {year}/{MM}/{caretta-id}.toml
-└── assertions/
-    └── {year}/{MM}/{caretta-id}.toml
+│   └── {year}/{MM}/{grain-id}.toml
+├── assertions/
+│   └── {year}/{MM}/{grain-id}.toml
+└── prices/
+    └── {year}/{MM}/{grain-id}.toml
 ```
 
 A workspace is any directory that contains a `.sapphire-ledger/`
@@ -76,25 +78,77 @@ Account name validation rejects:
 - `.` or `..` segments (path traversal).
 - Segments containing `/` or `\`.
 
-### Transaction and assertion paths
+### Transaction, assertion and price-log paths
 
-Both follow `{kind}/{year}/{MM}/{caretta-id}.toml`. The caretta-id is a
-7-character BASE32 identifier with decisecond precision; two records
-created more than 0.1s apart are guaranteed to have different IDs, which
-removes the need for a central ID coordinator under concurrent edits.
-(ID generation is not yet integrated — see open follow-ups.)
+All three follow `{kind}/{year}/{MM}/{grain-id}.toml`. The id is stored both
+as the filename and as a field inside the file (`id = "0a1b2c3"`) so a record
+survives being moved or copied.
 
-The ID is stored both as the filename and as a field inside the file
-(`id = "0a1b2c3"`) so a record survives being moved or copied.
+Ids come from [`grain-id`](https://crates.io/crates/grain-id). Records whose id
+is their filename — transactions, assertions, prices — mint with
+`GrainId::now_unix()` on the first attempt, whose decisecond resolution makes a
+`{year}/{MM}/` listing time-ordered. Uniqueness is checked across the whole
+record kind — every id already in use under `transactions/`, `assertions/` or
+`prices/` — not merely against the destination path: two records minted in one
+decisecond but dated in different months land in different `{year}/{MM}/`
+directories, so a per-path check alone would let both keep the same id. A
+collision therefore means another record of the same kind was minted in the
+same decisecond; `now_unix()` is a pure function of that decisecond, so
+re-minting it would return the same id forever, and `core::ops` mints
+`GrainId::random()` on every retry instead. Uniqueness is the hard requirement
+and ordering is the nicety, so ordering is what gives way — and inside a burst
+it was unobtainable anyway. The `date` field inside each record remains the real
+ordering key.
+
+**Accounts use `GrainId::random()` from the start**: an account's id is not in
+its path, so it does no ordering work, and a chart of accounts created in one
+sitting would otherwise share a long leading prefix — the opposite of what CLI
+completion wants. Because an account's id is not its filename, the
+refuse-to-overwrite check cannot see an id collision, so `create_account`
+checks the minted id against the accounts already on disk.
 
 ## Data model
 
 All struct definitions live in [`sapphire-ledger-core/src/`](../sapphire-ledger-core/src/).
 This section summarizes the shapes; the source is authoritative.
 
+### Account references
+
+`Account` carries an `id`. Postings and assertions reference an account by
+`account_id`, with a denormalized `account_name` beside it:
+
+```toml
+[[postings]]
+account_id   = "0a1b2c3"        # authoritative; survives a rename
+account_name = "Expenses:Food"  # for whoever reads the raw file
+```
+
+The id is what links; the name is never used for matching when the id is
+present. This is what makes renaming an account cheap: the account file
+changes and nothing else has to.
+
+The alternative — name-only references plus a rename operation that rewrites
+every transaction — was rejected because that rewrite spans many files while
+remote sync resolves conflicts per path, last-writer-wins. A client adding a
+transaction under the old name mid-rename would leave a record pointing at
+nothing.
+
+Three rules follow:
+
+1. **A stale `account_name` is not an error.** Older records keep the old name
+   until rewritten for some other reason. Flagging it would reintroduce the
+   whole-history rewrite this design avoids.
+2. **Duplicate account ids *are* an error.** An account's path comes from its
+   name, so a rename is a file move; if that races under sync, one id can land
+   at two paths.
+3. **Either field alone is accepted on read.** Both present means the id wins;
+   name-only is resolved to an id when the record is written; neither is an
+   error. Hand-written TOML must not require an id lookup first.
+
 ### Account ([`account.rs`](../sapphire-ledger-core/src/account.rs))
 
 ```toml
+id = "a3k9m2p"
 name = "Assets:Cash:USD"
 type = "Asset"               # Asset | Liability | Equity | Income | Expense
 currencies = ["USD"]         # empty/omitted = any currency allowed
@@ -120,14 +174,16 @@ created_at = "2026-05-21T18:30:00+09:00"
 updated_at = "2026-05-21T18:30:00+09:00"
 
 [[postings]]
-account = "Expenses:Food"
+account_id   = "0f2e9a1"       # authoritative; account_name is denormalized
+account_name = "Expenses:Food"
 amount = "1200"                # string-encoded Decimal
 currency = "JPY"
 # memo = "..."                 # optional, per-posting
 # price = { value = "150", currency = "JPY" }   # optional, see Multi-currency
 
 [[postings]]
-account = "Liabilities:CreditCard:Rakuten"
+account_id   = "7c4d8b0"
+account_name = "Liabilities:CreditCard:Rakuten"
 amount = "-1200"
 currency = "JPY"
 ```
@@ -146,13 +202,15 @@ A cross-currency transaction uses Beancount-style inline prices:
 ```toml
 # Move 15,000 JPY into a USD cash account at a rate of 150 JPY/USD.
 [[postings]]
-account = "Assets:Cash:USD"
+account_id   = "9k3n7x2"
+account_name = "Assets:Cash:USD"
 amount = "100"
 currency = "USD"
 price = { value = "150", currency = "JPY" }   # 1 USD = 150 JPY
 
 [[postings]]
-account = "Assets:Cash:JPY"
+account_id   = "2m5p8q1"
+account_name = "Assets:Cash:JPY"
 amount = "-15000"
 currency = "JPY"
 ```
@@ -165,8 +223,10 @@ currency = "JPY"
 The transaction balances if every resulting currency totals zero. In the
 example above, both sides contribute to JPY and net to zero.
 
-**Out of scope for now**: lot tracking, unrealized FX P&L, separate
-price-log files for historical FX rates. See the open follow-ups.
+**Out of scope for now**: lot tracking, unrealized FX P&L, and converting a
+stored rate back into a balance. The price log itself is stored — see
+[Price log](#price-log-pricesrs) below — but nothing yet reads it back to
+convert. See the open follow-ups.
 
 ### Assertion ([`assertion.rs`](../sapphire-ledger-core/src/assertion.rs))
 
@@ -175,8 +235,9 @@ of a given date (after all transactions on that date — hledger semantics,
 not Beancount's before-the-date semantics).
 
 ```toml
-id = "as0001"
-account = "Assets:Brokerage"
+id = "b7f3n0q"
+account_id   = "4h6j2k9"       # authoritative; account_name is denormalized
+account_name = "Assets:Brokerage"
 date = "2026-05-31"
 created_at = "2026-05-31T23:59:00+09:00"
 updated_at = "2026-05-31T23:59:00+09:00"
@@ -198,6 +259,29 @@ auto-balancing — mismatches must be fixed manually.
 Subtree assertions ("`Assets` and all descendants total X") are not
 supported in MVP. Leaf accounts only.
 
+### Price log ([`prices.rs`](../sapphire-ledger-core/src/prices.rs))
+
+A standalone record of one observed exchange rate, independent of any
+transaction: `1 base = rate quote` on `date`. Stored under
+`prices/{year}/{MM}/{grain-id}.toml`, the same layout as transactions and
+assertions.
+
+```toml
+id = "0a1b2c3"
+date = "2026-05-21"
+base = "USD"
+quote = "JPY"
+rate = "150.5"
+source = "manual"              # optional
+created_at = "2026-05-21T18:30:00+09:00"
+updated_at = "2026-05-21T18:30:00+09:00"
+```
+
+This is storage only. `sapphire-ledger` can record a rate, but nothing yet
+reads the price log back to convert a balance into `base_currency` or build a
+net-worth report — that's the conversion half deferred out of Multi-currency
+above.
+
 ### Opening balances
 
 When a new account begins with a non-zero balance, that's expressed as a
@@ -212,11 +296,12 @@ schema_version = 1
 base_currency = "JPY"     # used for FX-converted reporting (planned)
 
 [cache]
-scan_interval = 60         # SQLite cache rescan interval in seconds
+scan_interval = 60         # reserved for a future mtime-rescan consumer; unread today
 ```
 
-`base_currency` will drive net-worth / FX-converted views once the price
-log lands. Without it, only per-currency views are possible.
+`base_currency` will drive net-worth / FX-converted views once price
+*conversion* is built on top of the price log (see [Price
+log](#price-log-pricesrs)). Without it, only per-currency views are possible.
 
 ## Validation pipeline
 
@@ -234,15 +319,25 @@ Validation runs at two layers.
 short-circuits — the user gets every issue in one pass. Issues currently
 detected:
 
+- Two accounts share an `id` (a rename that raced under sync).
+- Two accounts share a `name`. A name-only posting would otherwise resolve
+  to whichever of them won the lookup table.
+- Two transactions, two assertions or two price entries share an `id`. Ids
+  are unique per record kind, not per `{year}/{MM}/` directory; a record
+  whose date was corrected moves between directories, and that move is a
+  delete-plus-add that can race under sync.
 - Transaction fails per-record validation (balance, posting count).
 - Posting references an account that doesn't exist in `accounts/`.
+- Posting or assertion carries no account reference at all (neither
+  `account_id` nor `account_name`).
 - Posting currency violates the account's `currencies` constraint.
 - Assertion references an undefined account.
 - Assertion balance currency violates the account's `currencies`
   constraint.
 
 `ValidationIssue` carries optional `transaction_id`, `assertion_id`, and
-`account` fields so MCP tools can return structured reports later.
+`account` fields so MCP tools (`validate_workspace`, and `sapphire-ledger
+check` on the CLI) can return structured reports.
 
 **Not yet implemented** (see issues):
 
@@ -252,39 +347,68 @@ detected:
 
 ## Cache strategy
 
-The plan (not yet built) is a hybrid:
+There is deliberately **no ledger-specific cache**. `load_workspace` walks the
+TOML files on every load, which is milliseconds at household scale.
 
-1. **Event-driven**: in-process edits update the SQLite cache directly.
-2. **Periodic mtime scan**: catches external changes from `git pull`,
-   Syncthing, manual editor saves, etc.
+The framework supplies mtime tracking (`sapphire-framework-track`) and search
+(`sapphire-framework-retrieve`) when a consumer needs them; neither is wired
+into any crate here yet — the `[cache]` section of the workspace config
+(`scan_interval`) is reserved for whichever of them ends up consuming it. A
+ledger-specific index — postings by account, running balances — is deferred
+until walking is measurably slow. See issue #1.
 
-The cache database lives at `.sapphire-ledger/cache.sqlite` and is
-gitignored. Initial sketch of tables: `transactions`, `postings`,
-`accounts`, `assertions`, `file_index (path, mtime, content_hash)`.
+`rusqlite` is not a dependency of this workspace, and no crate here adds one.
+`grain-id` ships an optional `rusqlite` feature — off by default, and not
+enabled by anything in this workspace — that only adds `ToSql`/`FromSql` impls
+for `GrainId`; it is not a caching mechanism and does not pull rusqlite into
+the build unless a crate here explicitly turns the feature on, so `Cargo.lock`
+currently has no rusqlite entry at all. A SQLite-backed cache is a deliberate
+non-goal here, not a stopgap for a slow walk that hasn't been measured yet.
 
 ## Crate structure
 
 ```
 sapphire-ledger/
-├── sapphire-ledger-core/      # data model, TOML I/O, validation
+├── sapphire-ledger-core/      # data model, TOML I/O, validation, write path
 ├── sapphire-ledger-mcp/       # MCP server logic — LIBRARY only
 ├── sapphire-ledger-cli/       # `sapphire-ledger` binary, embeds stdio MCP
-└── sapphire-ledger-desktop/   # egui GUI, embeds opt-in HTTP MCP
+├── sapphire-ledger-desktop/   # egui GUI (no MCP transport of its own)
+└── sapphire-ledger-server/    # self-hosted /rpc sync + /mcp (planned)
 ```
 
-The MCP crate is intentionally **a library, not a binary**. Both the CLI
-(stdio transport) and the Desktop GUI (HTTP transport on loopback) embed
-the same server logic, so a single install gives both human and agent
-interfaces. See the [MCP server](#mcp-server) section for the details.
+The MCP crate is intentionally **a library, not a binary**. The CLI embeds it
+today for the stdio transport; `sapphire-ledger-server` will embed it for the
+HTTP transport once that crate exists. See the [MCP server](#mcp-server)
+section for the details.
 
 Mobile builds (potentially with Dioxus) and a VS Code extension are
 deferred — see open follow-ups.
 
 ## MCP server
 
-Aligned with the sapphire-journal pattern introduced in
-[fluo10/sapphire-journal#229](https://github.com/fluo10/sapphire-journal/pull/229),
-which is the template implementation to mirror.
+Modelled on `sapphire-journal-mcp` as it stands today: a server struct holding
+an `Arc<Mutex<LedgerState>>`, tools declared with rmcp's `#[tool]` macro, and
+a stdio entry point. The HTTP transport arrives with `sapphire-ledger-server`,
+which puts `/rpc` and `/mcp` behind one set of API keys — not with the desktop
+GUI, as this document originally planned.
+
+### Tools
+
+Nine tools, declared in [`server.rs`](../sapphire-ledger-mcp/src/server.rs):
+five read, four write. Descriptions below are the tools' own
+`#[tool(description = ...)]` text, condensed to one line each.
+
+| Tool | Does |
+|---|---|
+| `list_accounts` | List every account with its id, name, type, allowed currencies and open date. The id is the stable handle — it survives a rename. |
+| `get_transaction` | Show one transaction, with all of its postings, by id. |
+| `query_postings` | Find postings, optionally filtered by account (id or name), currency and date range; each result carries its transaction's id, date and narration. |
+| `query_prices` | Find price-log entries, optionally filtered by base, quote and date range. |
+| `validate_workspace` | Re-read the ledger from disk and report every validation issue. Empty array means consistent; a stale `account_name` alone is NOT an issue. |
+| `add_account` | Create an account. Fails if one with that name already exists. Every account a posting names must be created first. Returns the new account's id. |
+| `add_transaction` | Record a transaction. Postings must sum to zero per currency, and every account named must already exist. Nothing is written if validation fails. |
+| `add_assertion` | Record a balance assertion: what an account should hold at the END of a date. A mismatch is a hard error when the books are checked. |
+| `add_price` | Record an observed exchange rate in the price log: one unit of `base` costs `rate` units of `quote` on `date`. |
 
 ### Crate is library-only
 
@@ -306,24 +430,20 @@ an `mcp__sapphire-ledger__*` server. `--init` lets the agent create a
 fresh workspace if the target directory isn't one yet (no-op when it
 already is).
 
-### Desktop: opt-in HTTP transport
+### HTTP transport: `sapphire-ledger-server` (planned)
 
-The HTTP path is gated behind an **`http-server` cargo feature on the
-mcp crate** that pulls in `rmcp/transport-streamable-http-server` and
-`axum`. The default build (used by the CLI) stays stdio-only and avoids
-the axum dependency tree.
+**Not built.** No `sapphire-ledger-server` crate exists yet, and the mcp
+crate has no `http-server` feature — `sapphire-ledger-mcp`'s only shipped
+transport is stdio, via `sapphire-ledger mcp`. This section records the plan
+this document originally assigned to the desktop binary itself; it has since
+moved to a dedicated server crate instead.
 
-When the desktop binary enables that feature, it can run an in-process
-HTTP MCP server at `http://127.0.0.1:<port>/mcp` whenever a ledger is
-open. The port lives in the user's settings and the server is
-reconciled against (ledger-is-open, feature-enabled, port) every
-frame, so it starts, stops, and restarts automatically as the user
-toggles the setting, changes the port, or switches workspaces.
-
-**Loopback only.** The server binds to `127.0.0.1` exclusively. Exposing
-the ledger beyond loopback would require an auth layer (token /
-API-key) that is explicitly out of scope for MVP. Adding that is the
-prerequisite for ever binding to `0.0.0.0`.
+The plan: a self-hosted `sapphire-ledger-server` binary puts `/rpc` (sync)
+and `/mcp` behind one set of API keys, rather than the desktop GUI embedding
+an HTTP MCP server directly. Centralizing both endpoints in one process means
+one auth layer to build instead of duplicating it per client. Loopback-only
+binding and the token/API-key requirement before ever listening beyond
+`127.0.0.1` remain the design constraints carried over from the earlier plan.
 
 ### Library API shape
 
@@ -357,18 +477,21 @@ permissive until there is a reason to tighten it.
 
 ## Status
 
-- ✅ Workspace scaffold (`core`/`mcp`/`cli`/`desktop`), `cargo build` clean.
+- ✅ Workspace scaffold, `cargo build` clean.
 - ✅ Data model (accounts, transactions, postings, prices, assertions, config).
 - ✅ TOML round-trip with serde.
 - ✅ Path conventions, workspace discovery, `init_workspace`.
-- ✅ Repository I/O (`load_toml`, `save_toml`, `walk_toml_files`, `load_workspace`).
-- ✅ Cross-record validation + `sapphire-ledger check`.
-- 🚧 SQLite cache — designed, not implemented.
-- 🚧 MCP server logic — empty library stub.
-- 🚧 CLI write commands (`sapphire-ledger account add`, `sapphire-ledger tx add`).
-- 🚧 caretta-id / grain-id integration for ID generation.
-- 🚧 Price log (FX rate timeseries).
-- 🚧 Phase 2: subtree assertions, `pad`, attachments, recurring templates, VS Code extension, mobile.
+- ✅ Repository I/O and cross-record validation + `sapphire-ledger check`.
+- ✅ Record ids everywhere, with id-linked account references.
+- ✅ Price-log records (storage; conversion and reporting deferred).
+- ✅ `core::ops` write path.
+- ✅ Framework dependency (`AppContext`) + `LedgerState` session object.
+- ✅ MCP server over stdio: read and write tools, via `sapphire-ledger mcp`.
+- 🚧 `sapphire-ledger-server` (`/rpc` + `/mcp`).
+- 🚧 CLI write commands.
+- 🚧 Desktop GUI.
+- 🚧 Price conversion / base-currency reporting.
+- 🚧 Phase 2: see the issue tracker.
 
 See [GitHub issues](https://github.com/fluo10/sapphire-ledger/issues) for
 follow-up work.

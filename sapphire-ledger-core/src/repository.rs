@@ -7,16 +7,27 @@ use serde::de::DeserializeOwned;
 use crate::account::Account;
 use crate::assertion::Assertion;
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::prices::PriceEntry;
 use crate::transaction::Transaction;
 use crate::workspace::{
-    ACCOUNTS_DIR, ASSERTIONS_DIR, CONFIG_FILE, TOML_EXTENSION, TRANSACTIONS_DIR, WORKSPACE_DIR,
+    ACCOUNTS_DIR, ASSERTIONS_DIR, CONFIG_FILE, PRICES_DIR, TOML_EXTENSION, TRANSACTIONS_DIR,
+    WORKSPACE_DIR,
 };
 
 /// Read a TOML file and deserialize it into `T`.
+///
+/// Both failure modes are tagged with the file they came from. `load_workspace`
+/// is fail-fast across the whole ledger, so without the path a single bad
+/// record aborts the load with a parse error naming a line number in a file
+/// nobody can identify.
 pub fn load_toml<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    let text = fs::read_to_string(path)?;
-    Ok(toml::from_str(&text)?)
+    let at = |source: Error| Error::Record {
+        path: path.to_path_buf(),
+        source: Box::new(source),
+    };
+    let text = fs::read_to_string(path).map_err(|e| at(e.into()))?;
+    toml::from_str(&text).map_err(|e| at(e.into()))
 }
 
 /// Serialize `value` as TOML and write it to `path`, creating parent
@@ -65,6 +76,7 @@ pub struct Workspace {
     pub accounts: Vec<Account>,
     pub transactions: Vec<Transaction>,
     pub assertions: Vec<Assertion>,
+    pub prices: Vec<PriceEntry>,
 }
 
 /// Load all records from a workspace at `root` (the directory containing
@@ -87,11 +99,17 @@ pub fn load_workspace(root: &Path) -> Result<Workspace> {
         .map(|p| load_toml::<Assertion>(p))
         .collect::<Result<Vec<_>>>()?;
 
+    let prices = walk_toml_files(&root.join(PRICES_DIR))?
+        .iter()
+        .map(|p| load_toml::<PriceEntry>(p))
+        .collect::<Result<Vec<_>>>()?;
+
     Ok(Workspace {
         root: root.to_path_buf(),
         config,
         accounts,
         transactions,
         assertions,
+        prices,
     })
 }

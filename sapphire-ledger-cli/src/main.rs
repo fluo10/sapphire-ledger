@@ -32,7 +32,11 @@ enum Command {
     /// Load every record and report any validation issues
     Check,
     /// Run the MCP server over stdio
-    Mcp,
+    Mcp {
+        /// Create the ledger if the target directory is not one yet
+        #[arg(long)]
+        init: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -72,8 +76,6 @@ fn main() -> Result<()> {
                 anyhow::bail!("validation failed with {} issue(s)", issues.len());
             }
         }
-        Command::Mcp => {
-            anyhow::bail!("mcp: not yet implemented");
-        }
+        Command::Mcp { init } => sapphire_ledger_mcp::run(cli.ledger_dir.as_deref(), init),
     }
 }

@@ -12,16 +12,18 @@ pub enum TransactionStatus {
     Pending,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Price {
-    #[serde(with = "rust_decimal::serde::str")]
-    pub value: Decimal,
-    pub currency: String,
-}
+pub use crate::prices::Price;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Posting {
-    pub account: String,
+    /// The authoritative link. Survives a rename of the account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    /// A denormalized copy of the account's name, for whoever reads the raw
+    /// file. Never used for matching when `account_id` is set, and allowed to
+    /// go stale after a rename.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
     #[serde(with = "rust_decimal::serde::str")]
     pub amount: Decimal,
     pub currency: String,
