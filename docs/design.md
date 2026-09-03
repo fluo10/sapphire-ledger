@@ -520,6 +520,7 @@ CLI:
 
 ```
 sapphire-ledger-server --ledger-dir DIR              # serve
+sapphire-ledger-server init [--base-currency CCY]
 sapphire-ledger-server user add <name>
 sapphire-ledger-server user list
 sapphire-ledger-server device add <name> --user <selector>
@@ -531,7 +532,27 @@ sapphire-ledger-server device retire <selector>
 `--ledger-dir` (or `SAPPHIRE_LEDGER_SERVER_DIR`) is required for every one of
 these, not only `serve`: the user/device registry lives under the ledger
 root, so `identity::run` needs it to resolve the workspace before it can add,
-list, rotate or retire anything.
+list, rotate or retire anything. For `init` it names the directory to create.
+
+`init` does the same job as `sapphire-ledger init`, offered here so that
+setting up a server does not need a second binary. It stops at the workspace —
+the registry and the first token come from `user add` and `device add`, which
+already own that concern — and prints those two commands on its way out. A
+first-time setup is therefore:
+
+```
+sapphire-ledger-server --ledger-dir ~/ledger init
+sapphire-ledger-server --ledger-dir ~/ledger user add me
+sapphire-ledger-server --ledger-dir ~/ledger device add laptop --user me   # token to stdout, once
+sapphire-ledger-server --ledger-dir ~/ledger
+```
+
+Note the ordering constraint `init` introduces: the key file's location is
+derived from the *canonicalized* ledger root, and canonicalization fails on a
+directory that does not exist yet. `main` therefore resolves the key path per
+command rather than once up front, so that `init` never asks for it — asking
+before the directory exists would name one location during setup and a
+different one for every command afterwards.
 
 `last_updated_by` is not implemented. `Authenticated` carries an optional
 `device_id`, and every key this server's CLI mints sets one — that is the
