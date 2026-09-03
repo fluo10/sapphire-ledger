@@ -36,3 +36,22 @@ pub use workspace::{
 /// the framework uses. Mirrors `JOURNAL_CTX` in sapphire-journal.
 pub static LEDGER_CTX: sapphire_workspace::AppContext =
     sapphire_workspace::AppContext::new("sapphire-ledger");
+
+/// Point [`LEDGER_CTX`] at this machine's cache and data directories.
+///
+/// `AppContext::cache_dir()` panics if this has not run, so every binary that
+/// touches the context calls this first. Mirrors `sapphire-journal-core`'s
+/// `init_app_context`. Idempotent: `AppContext`'s setters are first-writer-wins,
+/// so calling it twice is harmless and calling it from a test is fine.
+pub fn init_app_context() {
+    let cache = dirs::cache_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join(".cache"))
+        .join("sapphire-ledger");
+    let data = dirs::data_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join(".local").join("share"))
+        .join("sapphire-ledger");
+    let _ = std::fs::create_dir_all(&cache);
+    let _ = std::fs::create_dir_all(&data);
+    LEDGER_CTX.set_cache_dir(cache);
+    LEDGER_CTX.set_data_dir(data);
+}
