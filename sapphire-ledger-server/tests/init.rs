@@ -66,32 +66,35 @@ fn init_refuses_an_existing_workspace() {
     );
 }
 
-/// The reason `main` must not resolve the key path before dispatching `init`.
+/// Once the workspace exists, every command agrees where the key file lives.
 ///
-/// `default_keys_path` goes through `cache_dir_for`, which derives a uuid from
-/// the *canonicalized* root. `canonicalize` fails on a path that does not exist
-/// yet and the framework falls back to the raw path, so asking for the key file
-/// before the workspace exists yields a different directory than every command
-/// afterwards will use.
+/// This is the guarantee `device add` and `serve` depend on: they resolve the
+/// path independently, and a disagreement means a token written to one place
+/// and looked for in another.
 ///
-/// This pins the hazard rather than the fix: `main`'s ordering is not reachable
-/// from a test. If someone moves the resolution back above the match, this test
-/// still passes — but it is here so the next reader can see why the ordering is
-/// deliberate instead of rediscovering it with a key file nobody can find.
+/// It is also why `main` resolves the key path per command instead of once
+/// before the match. `default_keys_path` goes through `cache_dir_for`, which
+/// derives its directory from the **canonicalized** root; `canonicalize` fails
+/// on a path that does not exist yet and the framework falls back to the raw
+/// path. On Windows that fallback always differs, because `canonicalize`
+/// returns the `\\?\` verbatim form; on Linux it differs only when the path
+/// holds symlinks or relative components. So resolving before `init` names a
+/// directory that may or may not survive the workspace being created —
+/// platform-dependent, which is worse than reliably wrong.
+///
+/// An earlier version of this test asserted that the before and after paths
+/// *differ*, to document the hazard. That was a test demanding a bug be
+/// present, and it duly failed on Linux where the two coincide. What is
+/// actually worth pinning is the stability below; the hazard belongs in this
+/// comment. `main`'s ordering itself is not reachable from a test.
 #[test]
-fn the_key_path_only_settles_once_the_workspace_exists() {
+fn the_key_path_is_stable_once_the_workspace_exists() {
     test_cache_root();
     let parent = tempfile::tempdir().expect("tempdir");
     let root = parent.path().join("my-ledger");
 
-    let before = serve::default_keys_path(&root).expect("before");
     init::run(&root, "JPY").expect("init");
     let after = serve::default_keys_path(&root).expect("after");
-
-    assert_ne!(
-        before, after,
-        "if these ever agree the hazard is gone and this test can go with it"
-    );
 
     let again = serve::default_keys_path(&root).expect("again");
     assert_eq!(
