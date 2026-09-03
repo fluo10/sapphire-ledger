@@ -31,8 +31,17 @@ HTTP, authenticated per device (see [`docs/design.md`](docs/design.md#mcp-server
 for the CLI and the auth model). `/rpc` sync is not built, so a correction to
 what an agent wrote still has to happen on the machine holding the
 workspace's files — the review loop the project exists for is not yet
-closed. The desktop GUI is still a scaffold, and there are no CLI write
-commands yet — records are created through the MCP tools or by hand.
+closed. The desktop GUI is still a scaffold, but the CLI can now write:
+
+```
+sapphire-ledger account add Expenses:Food --type Expense
+sapphire-ledger tx add --narration "groceries" \
+  --posting "Expenses:Food 1200 JPY" --posting "Assets:Cash -1200 JPY"
+sapphire-ledger tx list --account Expenses:Food
+```
+
+plus `assertion add` and `price add` — all thin wrappers over the same
+`core::ops` the MCP tools use, so the rules are identical whoever is typing.
 
 ## License
 

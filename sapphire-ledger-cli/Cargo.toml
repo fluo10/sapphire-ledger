@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
 sapphire-ledger-mcp  = { path = "../sapphire-ledger-mcp",  version = "0.1.0", default-features = false }
+chrono.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 
