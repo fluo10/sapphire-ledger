@@ -49,6 +49,14 @@ pub fn run(command: Command, ledger_dir: &Path, keys_path: &Path) -> anyhow::Res
     match command {
         Command::User(cmd) => run_user(cmd, &workspace),
         Command::Device(cmd) => run_device(cmd, &workspace, keys_path),
+        // `main` dispatches `init` to `crate::init` before reaching here, and
+        // it has to: this function opens the workspace above, which is the very
+        // thing `init` creates. An error rather than `unreachable!` because a
+        // dispatch mistake should tell the operator what went wrong instead of
+        // handing them a panic.
+        Command::Init { .. } => anyhow::bail!(
+            "internal error: `init` reached the identity commands; it is dispatched by `main`"
+        ),
     }
 }
 

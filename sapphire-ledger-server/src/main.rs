@@ -1,6 +1,6 @@
 use clap::Parser as _;
-use sapphire_ledger_server::cli::Cli;
-use sapphire_ledger_server::{identity, serve};
+use sapphire_ledger_server::cli::{Cli, Command};
+use sapphire_ledger_server::{identity, init, serve};
 
 const LEDGER_DIR_REQUIRED: &str = "--ledger-dir is required (or set SAPPHIRE_LEDGER_SERVER_DIR)";
 
@@ -25,16 +25,24 @@ async fn main() -> anyhow::Result<()> {
         .ledger_dir
         .clone()
         .ok_or_else(|| anyhow::anyhow!("{LEDGER_DIR_REQUIRED}"))?;
-    let keys_path = match cli.keys.clone() {
-        Some(p) => p,
-        None => serve::default_keys_path(&ledger_dir)?,
+    // Resolved per command, not once up front, because `init` must not resolve
+    // it at all. `default_keys_path` goes through `cache_dir_for`, which derives
+    // its directory from the *canonicalized* ledger root; `canonicalize` fails
+    // on a path that does not exist yet and the framework falls back to the raw
+    // path. Asking for the key file before `init` has run therefore names a
+    // different directory than every command afterwards — a token written to one
+    // and looked for in the other.
+    let keys_path = || match cli.keys.clone() {
+        Some(p) => Ok(p),
+        None => serve::default_keys_path(&ledger_dir),
     };
 
     match cli.command {
         None => {
-            let state = serve::build_state(&keys_path)?;
+            let state = serve::build_state(&keys_path()?)?;
             serve::run(cli.addr, &ledger_dir, state, &cli.allowed_host).await
         }
-        Some(command) => identity::run(command, &ledger_dir, &keys_path),
+        Some(Command::Init { base_currency }) => init::run(&ledger_dir, &base_currency),
+        Some(command) => identity::run(command, &ledger_dir, &keys_path()?),
     }
 }

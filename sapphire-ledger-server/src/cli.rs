@@ -44,6 +44,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Create a ledger workspace at `--ledger-dir`.
+    ///
+    /// Creates the directory if it does not exist, and refuses one that is
+    /// already a workspace. Stops at the workspace: register a user and a
+    /// device afterwards to get a token.
+    Init {
+        /// Base currency used for reporting.
+        #[arg(long, default_value = "JPY")]
+        base_currency: String,
+    },
     /// Manage the people devices belong to.
     #[command(subcommand)]
     User(UserCommand),
