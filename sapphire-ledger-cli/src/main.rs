@@ -1,43 +1,13 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+mod cli;
+mod commands;
+mod posting;
+
 use std::path::PathBuf;
 
-#[derive(Parser)]
-#[command(
-    name = "sapphire-ledger",
-    about = "Local-first double-entry household ledger",
-    version
-)]
-struct Cli {
-    /// Path to the ledger root (the directory containing `.sapphire-ledger/`).
-    /// Overrides the automatic upward search from the current directory.
-    /// Can also be set via the SAPPHIRE_LEDGER_DIR environment variable.
-    #[arg(long, env = "SAPPHIRE_LEDGER_DIR", global = true, value_name = "DIR")]
-    ledger_dir: Option<PathBuf>,
+use anyhow::Result;
+use clap::Parser as _;
 
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Initialize a new ledger in the given directory (defaults to current directory)
-    Init {
-        /// Directory to initialize (created if it does not exist)
-        path: Option<PathBuf>,
-        /// Base currency used for reporting (default: JPY)
-        #[arg(long, default_value = "JPY")]
-        base_currency: String,
-    },
-    /// Load every record and report any validation issues
-    Check,
-    /// Run the MCP server over stdio
-    Mcp {
-        /// Create the ledger if the target directory is not one yet
-        #[arg(long)]
-        init: bool,
-    },
-}
+use cli::{Cli, Command};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -57,16 +27,16 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Check => {
-            let start = cli.ledger_dir.unwrap_or_else(|| PathBuf::from("."));
-            let root = sapphire_ledger_core::find_workspace_root(&start)?;
+            let root = resolve_root(cli.ledger_dir)?;
             let workspace = sapphire_ledger_core::load_workspace(&root)?;
             let issues = workspace.validate();
             if issues.is_empty() {
                 println!(
-                    "OK: {} account(s), {} transaction(s), {} assertion(s)",
+                    "OK: {} account(s), {} transaction(s), {} assertion(s), {} price(s)",
                     workspace.accounts.len(),
                     workspace.transactions.len(),
-                    workspace.assertions.len()
+                    workspace.assertions.len(),
+                    workspace.prices.len(),
                 );
                 Ok(())
             } else {
@@ -77,5 +47,21 @@ fn main() -> Result<()> {
             }
         }
         Command::Mcp { init } => sapphire_ledger_mcp::run(cli.ledger_dir.as_deref(), init),
+        Command::Account(c) => commands::account(c, &resolve_root(cli.ledger_dir)?),
+        Command::Tx(c) => commands::tx(c, &resolve_root(cli.ledger_dir)?),
+        Command::Assertion(c) => commands::assertion(c, &resolve_root(cli.ledger_dir)?),
+        Command::Price(c) => commands::price(c, &resolve_root(cli.ledger_dir)?),
     }
+}
+
+/// Find the ledger root: the given directory, or the nearest one above the
+/// working directory that holds a `.sapphire-ledger/`.
+///
+/// `--ledger-dir` is resolved through the same upward search rather than taken
+/// literally, so pointing it at a subdirectory of a ledger works the way `git`
+/// does — and so that `check` and the write commands agree on what "this
+/// ledger" means no matter where they were run from.
+fn resolve_root(ledger_dir: Option<PathBuf>) -> Result<PathBuf> {
+    let start = ledger_dir.unwrap_or_else(|| PathBuf::from("."));
+    Ok(sapphire_ledger_core::find_workspace_root(&start)?)
 }

@@ -610,7 +610,7 @@ permissive until there is a reason to tighten it.
 - 🚧 `/rpc` sync — no client exists yet, and reviewing or correcting an
   agent's write still means being on the machine holding the workspace's
   files.
-- 🚧 CLI write commands.
+- ✅ CLI write commands (`account add`, `tx add`, `assertion add`, `price add`, `tx list`).
 - 🚧 Desktop GUI.
 - 🚧 Price conversion / base-currency reporting.
 - 🚧 Phase 2: see the issue tracker.
