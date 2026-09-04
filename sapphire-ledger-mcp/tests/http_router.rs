@@ -38,7 +38,7 @@ async fn status_for_host(allowed: &[String], host: &str) -> StatusCode {
 #[tokio::test]
 async fn an_empty_configured_list_means_loopback_only_not_everything() {
     assert_ne!(
-        status_for_host(&[], "127.0.0.1:3838").await,
+        status_for_host(&[], "127.0.0.1:3173").await,
         StatusCode::FORBIDDEN,
         "loopback must always be allowed; an empty list must never mean \
          'allow nothing'"
@@ -57,7 +57,7 @@ async fn an_empty_configured_list_means_loopback_only_not_everything() {
 async fn a_configured_host_extends_the_list_rather_than_replacing_loopback() {
     let allowed = vec!["ledger.example.net".to_string()];
     assert_ne!(
-        status_for_host(&allowed, "127.0.0.1:3838").await,
+        status_for_host(&allowed, "127.0.0.1:3173").await,
         StatusCode::FORBIDDEN,
         "a caller-supplied host must be added on top of loopback, not \
          replace it -- loopback must still work after the bind is widened"
