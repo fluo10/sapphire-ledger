@@ -29,7 +29,7 @@ pub struct Cli {
     /// This server speaks plain HTTP — TLS is out of scope. A bind past
     /// loopback puts bearer tokens on the wire in cleartext, so put it
     /// behind a reverse proxy or on an already-encrypted network.
-    #[arg(long, default_value = "127.0.0.1:3838")]
+    #[arg(long, default_value = "127.0.0.1:3173")]
     pub addr: SocketAddr,
 
     /// A hostname clients use to reach this server. Repeatable. Loopback is

@@ -458,7 +458,7 @@ request whose `Host` header isn't on an allowlist, and its own default is
 loopback-only. `mcp_router` takes the extra hostnames as an argument and
 always adds loopback on top of them — an empty list from the caller is never
 handed to rmcp, which would read that as "allow every host" instead of
-"loopback only". `--addr` (default `127.0.0.1:3838`) is what widens the
+"loopback only". `--addr` (default `127.0.0.1:3173`) is what widens the
 bind, and `--allowed-host` (repeatable) is what widens this list. Bound
 beyond loopback with no `--allowed-host` at all, `sapphire-ledger-server`
 **refuses to start**: a wide bind with an empty allowlist would 403 every
