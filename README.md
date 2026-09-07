@@ -1,5 +1,7 @@
 # sapphire-ledger
 
+> Language: **English** | [日本語](README.ja.md)
+
 Local-first double-entry household ledger that keeps your data alive as plain text — timeless like fossils.
 
 ## Concept
@@ -15,11 +17,12 @@ Local-first double-entry household ledger that keeps your data alive as plain te
 
 ```
 sapphire-ledger/
-├── sapphire-ledger-core/      # Data model, TOML parser/serializer, validation, write path
-├── sapphire-ledger-mcp/       # MCP server logic (library, used by the CLI and by sapphire-ledger-server)
-├── sapphire-ledger-cli/       # CLI binary (sapphire-ledger) with stdio MCP server bundled
-├── sapphire-ledger-desktop/   # Desktop GUI (egui); still a scaffold
-└── sapphire-ledger-server/    # self-hosted MCP server over HTTP, authenticated per device (no /rpc sync yet)
+├── cli/                     # CLI binary (sapphire-ledger) with stdio MCP server bundled
+├── desktop/                 # Desktop GUI (egui); still a scaffold
+├── server/                  # self-hosted MCP server over HTTP, authenticated per device (no /rpc sync yet)
+└── crates/
+    ├── sapphire-ledger-core/  # Data model, TOML parser/serializer, validation, write path
+    └── sapphire-ledger-mcp/   # MCP server logic (library, used by the CLI and by server/)
 ```
 
 ## Status

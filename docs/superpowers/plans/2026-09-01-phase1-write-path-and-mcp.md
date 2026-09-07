@@ -29,7 +29,7 @@
 
 ## File Structure
 
-**`sapphire-ledger-core/src/`**
+**`crates/sapphire-ledger-core/src/`**
 - `prices.rs` — **new.** `PriceEntry`, and the inline `Price` moved out of `transaction.rs`.
 - `ops.rs` — **new.** The single write path: `new_id`, `new_random_id`, `create_account`, `create_transaction`, `create_assertion`, `create_price`.
 - `state.rs` — **new.** `LedgerState`: a loaded `Workspace` with `reload()`.
@@ -41,7 +41,7 @@
 - `validate.rs` — modified: resolve by id, flag duplicate ids and unresolvable references.
 - `lib.rs` — modified: modules and re-exports.
 
-**`sapphire-ledger-mcp/src/`**
+**`crates/sapphire-ledger-mcp/src/`**
 - `lib.rs` — modified from a 5-line stub.
 - `server.rs` — **new.** Parameter structs, the `#[tool_router]` impl, `ServerHandler`, `prepare_state`, stdio `run`.
 
@@ -57,7 +57,7 @@ The workspace manifest declares `rusqlite = { version = "0.39", features = ["bun
 
 **Files:**
 - Modify: `Cargo.toml:23`, `sapphire-ledger-core/Cargo.toml`
-- Create: `sapphire-ledger-core/src/ops.rs`
+- Create: `crates/sapphire-ledger-core/src/ops.rs`
 
 **Interfaces:**
 - Produces: `ops::new_id() -> String` (time-ordered), `ops::new_random_id() -> String`.
@@ -92,7 +92,7 @@ tempfile.workspace = true
 
 - [ ] **Step 4: Write the failing test**
 
-Create `sapphire-ledger-core/src/ops.rs`:
+Create `crates/sapphire-ledger-core/src/ops.rs`:
 
 ```rust
 //! The single write path for every record kind.
@@ -147,7 +147,7 @@ mod tests {
 }
 ```
 
-Add `pub mod ops;` to `sapphire-ledger-core/src/lib.rs`.
+Add `pub mod ops;` to `crates/sapphire-ledger-core/src/lib.rs`.
 
 - [ ] **Step 5: Run the tests**
 
@@ -171,18 +171,18 @@ accounts want leading-character spread for CLI completion."
 
 ### Task 2: Split Price from PriceEntry
 
-`Price` is publicly re-exported at `sapphire-ledger-core/src/lib.rs:24`. Once `schemars` generates MCP tool schemas from these types the name is published, so the split happens before Task 7 exposes anything.
+`Price` is publicly re-exported at `crates/sapphire-ledger-core/src/lib.rs:24`. Once `schemars` generates MCP tool schemas from these types the name is published, so the split happens before Task 7 exposes anything.
 
 **Files:**
-- Create: `sapphire-ledger-core/src/prices.rs`
-- Modify: `sapphire-ledger-core/src/transaction.rs:16-21`, `sapphire-ledger-core/src/lib.rs`
+- Create: `crates/sapphire-ledger-core/src/prices.rs`
+- Modify: `crates/sapphire-ledger-core/src/transaction.rs:16-21`, `crates/sapphire-ledger-core/src/lib.rs`
 
 **Interfaces:**
 - Produces: `prices::Price { value: Decimal, currency: String }`, `prices::PriceEntry { id, date, base, quote, rate, source, created_at, updated_at }`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `sapphire-ledger-core/src/prices.rs`:
+Create `crates/sapphire-ledger-core/src/prices.rs`:
 
 ```rust
 //! Exchange rates, in two unrelated shapes.
@@ -272,9 +272,9 @@ Expected: FAIL — `prices` is not a declared module.
 
 - [ ] **Step 3: Wire the module and move the type**
 
-Add `pub mod prices;` to `sapphire-ledger-core/src/lib.rs`.
+Add `pub mod prices;` to `crates/sapphire-ledger-core/src/lib.rs`.
 
-In `sapphire-ledger-core/src/transaction.rs`, **delete** the `Price` struct (lines 16-21) and put in its place:
+In `crates/sapphire-ledger-core/src/transaction.rs`, **delete** the `Price` struct (lines 16-21) and put in its place:
 
 ```rust
 pub use crate::prices::Price;
@@ -282,7 +282,7 @@ pub use crate::prices::Price;
 
 - [ ] **Step 4: Fix the crate re-exports**
 
-In `sapphire-ledger-core/src/lib.rs`:
+In `crates/sapphire-ledger-core/src/lib.rs`:
 
 ```rust
 pub use prices::{Price, PriceEntry};
@@ -309,7 +309,7 @@ after that ships would be a schema break."
 `Account` is the only record with no id, and both `Posting` and `Assertion` reference accounts by name — so renaming an account today means rewriting every file that mentions it. Under record-level sync that rewrite is not atomic and races with concurrent writes. This task makes the id the link.
 
 **Files:**
-- Modify: `sapphire-ledger-core/src/account.rs`, `transaction.rs`, `assertion.rs`, `validate.rs`, `lib.rs`
+- Modify: `crates/sapphire-ledger-core/src/account.rs`, `transaction.rs`, `assertion.rs`, `validate.rs`, `lib.rs`
 - Test: `sapphire-ledger-core/tests/account_refs.rs`
 
 **Interfaces:**
@@ -490,7 +490,7 @@ Expected: FAIL — `Account` has no `id`, `Posting` has no `account_id`.
 
 - [ ] **Step 3: Give Account an id and add the resolver**
 
-In `sapphire-ledger-core/src/account.rs`, add `id` as the first field of `Account`:
+In `crates/sapphire-ledger-core/src/account.rs`, add `id` as the first field of `Account`:
 
 ```rust
 pub struct Account {
@@ -541,7 +541,7 @@ pub fn resolve_account<'a>(
 
 - [ ] **Step 4: Replace the name references on Posting and Assertion**
 
-In `sapphire-ledger-core/src/transaction.rs`, replace `pub account: String,` on `Posting` with:
+In `crates/sapphire-ledger-core/src/transaction.rs`, replace `pub account: String,` on `Posting` with:
 
 ```rust
     /// The authoritative link. Survives a rename of the account.
@@ -554,11 +554,11 @@ In `sapphire-ledger-core/src/transaction.rs`, replace `pub account: String,` on 
     pub account_name: Option<String>,
 ```
 
-In `sapphire-ledger-core/src/assertion.rs`, replace `pub account: String,` on `Assertion` with the same two fields and the same doc comments.
+In `crates/sapphire-ledger-core/src/assertion.rs`, replace `pub account: String,` on `Assertion` with the same two fields and the same doc comments.
 
 - [ ] **Step 5: Rewrite validation to resolve by id**
 
-Replace the body of `Workspace::validate` in `sapphire-ledger-core/src/validate.rs`:
+Replace the body of `Workspace::validate` in `crates/sapphire-ledger-core/src/validate.rs`:
 
 ```rust
     pub fn validate(&self) -> Vec<ValidationIssue> {
@@ -662,7 +662,7 @@ The error text must contain "no account reference", "undefined account" and "dup
 
 - [ ] **Step 6: Export the new helpers**
 
-In `sapphire-ledger-core/src/lib.rs`, extend the account re-export:
+In `crates/sapphire-ledger-core/src/lib.rs`, extend the account re-export:
 
 ```rust
 pub use account::{Account, AccountType, account_name_segments, describe_ref, resolve_account};
@@ -693,7 +693,7 @@ a stale name is explicitly not an error."
 ### Task 4: Price paths and workspace loading
 
 **Files:**
-- Modify: `sapphire-ledger-core/src/workspace.rs`, `repository.rs`, `lib.rs`
+- Modify: `crates/sapphire-ledger-core/src/workspace.rs`, `repository.rs`, `lib.rs`
 - Test: `sapphire-ledger-core/tests/workspace_prices.rs`
 
 **Interfaces:**
@@ -756,7 +756,7 @@ Expected: FAIL — `price_relative_path` does not exist, `Workspace` has no `pri
 
 - [ ] **Step 3: Add the constant, the path helper, and the directory**
 
-In `sapphire-ledger-core/src/workspace.rs`, beside `ASSERTIONS_DIR`:
+In `crates/sapphire-ledger-core/src/workspace.rs`, beside `ASSERTIONS_DIR`:
 
 ```rust
 pub const PRICES_DIR: &str = "prices";
@@ -782,7 +782,7 @@ and in `init_workspace`, beside the other `create_dir_all` calls:
 
 - [ ] **Step 4: Load them**
 
-In `sapphire-ledger-core/src/repository.rs`: add `use crate::prices::PriceEntry;`, add `PRICES_DIR` to the `crate::workspace::{...}` import, add `pub prices: Vec<PriceEntry>,` to `Workspace`, and before the `Ok(Workspace { ... })`:
+In `crates/sapphire-ledger-core/src/repository.rs`: add `use crate::prices::PriceEntry;`, add `PRICES_DIR` to the `crate::workspace::{...}` import, add `pub prices: Vec<PriceEntry>,` to `Workspace`, and before the `Ok(Workspace { ... })`:
 
 ```rust
     let prices = walk_toml_files(&root.join(PRICES_DIR))?
@@ -810,7 +810,7 @@ git commit -m "feat(core): store and load price-log entries"
 Every create mints an id, resolves the canonical path, validates, and refuses to overwrite. Account creation additionally checks its random id against the existing accounts, since an account's id is not its filename and the file-exists check cannot see it. Transaction and assertion creation resolve name-only references to ids, so records always land on disk carrying the authoritative link.
 
 **Files:**
-- Modify: `sapphire-ledger-core/src/ops.rs`
+- Modify: `crates/sapphire-ledger-core/src/ops.rs`
 - Test: `sapphire-ledger-core/tests/ops_create.rs`
 
 **Interfaces:**
@@ -1036,7 +1036,7 @@ Expected: FAIL — no `create_*` functions.
 
 - [ ] **Step 3: Implement the create functions**
 
-Append to `sapphire-ledger-core/src/ops.rs`, between `new_random_id` and the test module:
+Append to `crates/sapphire-ledger-core/src/ops.rs`, between `new_random_id` and the test module:
 
 ```rust
 use std::collections::HashMap;
@@ -1299,8 +1299,8 @@ name is the half allowed to go stale."
 Per the spec's scope note, this task introduces the state object and the dependency **only**. It builds no index: nothing in phase 1 steps 1-3 has a consumer for one.
 
 **Files:**
-- Create: `sapphire-ledger-core/src/state.rs`
-- Modify: `sapphire-ledger-core/src/lib.rs`, `sapphire-ledger-core/Cargo.toml`, `Cargo.toml`
+- Create: `crates/sapphire-ledger-core/src/state.rs`
+- Modify: `crates/sapphire-ledger-core/src/lib.rs`, `sapphire-ledger-core/Cargo.toml`, `Cargo.toml`
 - Test: `sapphire-ledger-core/tests/state_reload.rs`
 
 **Interfaces:**
@@ -1382,7 +1382,7 @@ Expected: FAIL — `LedgerState` does not exist.
 
 - [ ] **Step 4: Implement LedgerState**
 
-Create `sapphire-ledger-core/src/state.rs`:
+Create `crates/sapphire-ledger-core/src/state.rs`:
 
 ```rust
 //! In-memory session state: an open ledger workspace.
@@ -1444,7 +1444,7 @@ impl LedgerState {
 
 - [ ] **Step 5: Declare the module, the app context, and the re-export**
 
-In `sapphire-ledger-core/src/lib.rs`, add `pub mod state;`, then:
+In `crates/sapphire-ledger-core/src/lib.rs`, add `pub mod state;`, then:
 
 ```rust
 pub use state::LedgerState;
@@ -1476,8 +1476,8 @@ The first framework build pulls a git dependency and will be slow.
 ### Task 7: The MCP server — read tools
 
 **Files:**
-- Create: `sapphire-ledger-mcp/src/server.rs`
-- Modify: `sapphire-ledger-mcp/src/lib.rs`, `sapphire-ledger-mcp/Cargo.toml`
+- Create: `crates/sapphire-ledger-mcp/src/server.rs`
+- Modify: `crates/sapphire-ledger-mcp/src/lib.rs`, `sapphire-ledger-mcp/Cargo.toml`
 
 **Interfaces:**
 - Consumes: `LedgerState` (Task 6), `Workspace` fields (Task 4), account-ref fields (Task 3).
@@ -1511,7 +1511,7 @@ tempfile.workspace = true
 
 - [ ] **Step 2: Write the failing test**
 
-Create `sapphire-ledger-mcp/src/server.rs` with only this test module:
+Create `crates/sapphire-ledger-mcp/src/server.rs` with only this test module:
 
 ```rust
 #[cfg(test)]
@@ -1596,7 +1596,7 @@ Expected: FAIL — nothing in the test module resolves.
 
 - [ ] **Step 4: Implement the server and the read tools**
 
-Prepend to `sapphire-ledger-mcp/src/server.rs`, above the test module:
+Prepend to `crates/sapphire-ledger-mcp/src/server.rs`, above the test module:
 
 ```rust
 //! MCP server logic for sapphire-ledger.
@@ -1930,7 +1930,7 @@ pub async fn run(ledger_dir: Option<&Path>, init: bool) -> anyhow::Result<()> {
 }
 ```
 
-Replace `sapphire-ledger-mcp/src/lib.rs` entirely:
+Replace `crates/sapphire-ledger-mcp/src/lib.rs` entirely:
 
 ```rust
 //! MCP server logic for sapphire-ledger.
@@ -1961,7 +1961,7 @@ Expected: 3 passed.
 ### Task 8: The MCP server — write tools
 
 **Files:**
-- Modify: `sapphire-ledger-mcp/src/server.rs`
+- Modify: `crates/sapphire-ledger-mcp/src/server.rs`
 
 **Interfaces:**
 - Consumes: the `ops::create_*` functions (Task 5), `notify_write` (Task 7).
@@ -2110,7 +2110,7 @@ Expected: FAIL — the `Add*Params` types and the tools do not exist.
 
 - [ ] **Step 3: Add the parameter structs and converters**
 
-Append to the parameter-structs section of `sapphire-ledger-mcp/src/server.rs`:
+Append to the parameter-structs section of `crates/sapphire-ledger-mcp/src/server.rs`:
 
 ```rust
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

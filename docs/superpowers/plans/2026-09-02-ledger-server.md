@@ -49,8 +49,8 @@
 
 **Files:**
 - Modify: `sapphire-ledger-mcp/Cargo.toml`
-- Create: `sapphire-ledger-mcp/src/http.rs`
-- Modify: `sapphire-ledger-mcp/src/lib.rs`
+- Create: `crates/sapphire-ledger-mcp/src/http.rs`
+- Modify: `crates/sapphire-ledger-mcp/src/lib.rs`
 - Test: `sapphire-ledger-mcp/tests/http_router.rs`
 
 **Interfaces:**
@@ -185,7 +185,7 @@ Expected: FAIL — `sapphire_ledger_mcp::http` does not exist.
 
 - [ ] **Step 4: Implement the router**
 
-Create `sapphire-ledger-mcp/src/http.rs`:
+Create `crates/sapphire-ledger-mcp/src/http.rs`:
 
 ```rust
 //! HTTP transport for the MCP server: [`mcp_router`] builds the `/mcp` route
@@ -278,7 +278,7 @@ pub fn mcp_router(
 }
 ```
 
-In `sapphire-ledger-mcp/src/lib.rs`, add:
+In `crates/sapphire-ledger-mcp/src/lib.rs`, add:
 
 ```rust
 #[cfg(feature = "http-server")]

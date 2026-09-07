@@ -70,7 +70,7 @@ directly to a directory tree under `accounts/`:
 
 Path conversion functions (`account_relative_path`,
 `account_name_from_relative_path`) live in
-[`workspace.rs`](../sapphire-ledger-core/src/workspace.rs).
+[`workspace.rs`](../crates/sapphire-ledger-core/src/workspace.rs).
 
 Account name validation rejects:
 
@@ -109,7 +109,7 @@ checks the minted id against the accounts already on disk.
 
 ## Data model
 
-All struct definitions live in [`sapphire-ledger-core/src/`](../sapphire-ledger-core/src/).
+All struct definitions live in [`crates/sapphire-ledger-core/src/`](../crates/sapphire-ledger-core/src/).
 This section summarizes the shapes; the source is authoritative.
 
 ### Account references
@@ -145,7 +145,7 @@ Three rules follow:
    name-only is resolved to an id when the record is written; neither is an
    error. Hand-written TOML must not require an id lookup first.
 
-### Account ([`account.rs`](../sapphire-ledger-core/src/account.rs))
+### Account ([`account.rs`](../crates/sapphire-ledger-core/src/account.rs))
 
 ```toml
 id = "a3k9m2p"
@@ -161,7 +161,7 @@ opened_at = "2026-05-21"
 or contains the requested currency. The validator uses this to flag
 postings that violate an account's currency constraint.
 
-### Transaction ([`transaction.rs`](../sapphire-ledger-core/src/transaction.rs))
+### Transaction ([`transaction.rs`](../crates/sapphire-ledger-core/src/transaction.rs))
 
 ```toml
 id = "0a1b2c3"
@@ -228,7 +228,7 @@ stored rate back into a balance. The price log itself is stored — see
 [Price log](#price-log-pricesrs) below — but nothing yet reads it back to
 convert. See the open follow-ups.
 
-### Assertion ([`assertion.rs`](../sapphire-ledger-core/src/assertion.rs))
+### Assertion ([`assertion.rs`](../crates/sapphire-ledger-core/src/assertion.rs))
 
 A balance assertion declares the expected balance of an account at the end
 of a given date (after all transactions on that date — hledger semantics,
@@ -259,7 +259,7 @@ auto-balancing — mismatches must be fixed manually.
 Subtree assertions ("`Assets` and all descendants total X") are not
 supported in MVP. Leaf accounts only.
 
-### Price log ([`prices.rs`](../sapphire-ledger-core/src/prices.rs))
+### Price log ([`prices.rs`](../crates/sapphire-ledger-core/src/prices.rs))
 
 A standalone record of one observed exchange rate, independent of any
 transaction: `1 base = rate quote` on `date`. Stored under
@@ -289,7 +289,7 @@ regular transaction posting against `Equity:OpeningBalances`. Assertions
 are reserved for verification, not for declaring initial state. This
 matches Beancount and hledger conventions.
 
-### Workspace config ([`config.rs`](../sapphire-ledger-core/src/config.rs))
+### Workspace config ([`config.rs`](../crates/sapphire-ledger-core/src/config.rs))
 
 ```toml
 schema_version = 1
@@ -313,7 +313,7 @@ Validation runs at two layers.
 - Account-name shape (`account_name_segments`).
 
 **Cross-record**, against the whole workspace
-([`validate.rs`](../sapphire-ledger-core/src/validate.rs)):
+([`validate.rs`](../crates/sapphire-ledger-core/src/validate.rs)):
 
 `Workspace::validate()` returns `Vec<ValidationIssue>` and never
 short-circuits — the user gets every issue in one pass. Issues currently
@@ -369,11 +369,12 @@ non-goal here, not a stopgap for a slow walk that hasn't been measured yet.
 
 ```
 sapphire-ledger/
-├── sapphire-ledger-core/      # data model, TOML I/O, validation, write path
-├── sapphire-ledger-mcp/       # MCP server logic — LIBRARY only
-├── sapphire-ledger-cli/       # `sapphire-ledger` binary, embeds stdio MCP
-├── sapphire-ledger-desktop/   # egui GUI (no MCP transport of its own)
-└── sapphire-ledger-server/    # self-hosted MCP server over HTTP, per-device auth (no /rpc sync yet)
+├── cli/                     # `sapphire-ledger` binary, embeds stdio MCP
+├── desktop/                 # egui GUI (no MCP transport of its own)
+├── server/                  # self-hosted MCP server over HTTP, per-device auth (no /rpc sync yet)
+└── crates/
+    ├── sapphire-ledger-core/  # data model, TOML I/O, validation, write path
+    └── sapphire-ledger-mcp/   # MCP server logic — LIBRARY only
 ```
 
 The MCP crate is intentionally **a library, not a binary**. The CLI embeds it
@@ -397,7 +398,7 @@ below.
 
 ### Tools
 
-Nine tools, declared in [`server.rs`](../sapphire-ledger-mcp/src/server.rs):
+Nine tools, declared in [`server.rs`](../crates/sapphire-ledger-mcp/src/server.rs):
 five read, four write. Descriptions below are the tools' own
 `#[tool(description = ...)]` text, condensed to one line each.
 

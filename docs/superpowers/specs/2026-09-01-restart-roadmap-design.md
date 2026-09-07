@@ -190,7 +190,7 @@ primary input path at once.
 ### Why the price-log storage half is cheaper now
 
 `Price` — the inline per-posting price — is a public re-export
-(`sapphire-ledger-core/src/lib.rs:24`). Once `sapphire-ledger-mcp` generates
+(`crates/sapphire-ledger-core/src/lib.rs:24`). Once `sapphire-ledger-mcp` generates
 tool schemas with `schemars`, that name becomes part of the published MCP
 surface. Separating the inline type from the price-log record type
 (`postings::Price` vs `prices::PriceEntry`) is a single rename today, before
@@ -200,7 +200,7 @@ Secondarily, `core::ops` has to handle three record kinds regardless; adding a
 fourth while writing it is one more arm on a match. Retrofitting means reopening
 `ops`, the CLI, MCP tool registration, `init_workspace`, and `validate`.
 `PriceEntry` is structurally near-identical to `Assertion`
-(`sapphire-ledger-core/src/assertion.rs`, 22 lines): id, date, small body, one
+(`crates/sapphire-ledger-core/src/assertion.rs`, 22 lines): id, date, small body, one
 file per record under `{kind}/{year}/{MM}/{id}.toml`.
 
 The conversion half is pure functions over already-loaded data. It adds no file
