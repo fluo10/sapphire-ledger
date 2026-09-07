@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "sapphire-ledger-cli",
-    "sapphire-ledger-core",
-    "sapphire-ledger-desktop",
-    "sapphire-ledger-mcp",
-    "sapphire-ledger-server",
+    "cli",
+    "crates/sapphire-ledger-core",
+    "desktop",
+    "crates/sapphire-ledger-mcp",
+    "server",
 ]
 resolver = "3"
 

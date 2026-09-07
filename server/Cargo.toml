@@ -18,8 +18,8 @@ default = ["redb-store"]
 redb-store = ["sapphire-ledger-core/redb-store", "sapphire-ledger-mcp/redb-store"]
 
 [dependencies]
-sapphire-ledger-core = { path = "../sapphire-ledger-core", version = "0.1.0", default-features = false }
-sapphire-ledger-mcp = { path = "../sapphire-ledger-mcp", version = "0.1.0", default-features = false, features = ["http-server"] }
+sapphire-ledger-core = { path = "../crates/sapphire-ledger-core", version = "0.1.0", default-features = false }
+sapphire-ledger-mcp = { path = "../crates/sapphire-ledger-mcp", version = "0.1.0", default-features = false, features = ["http-server"] }
 sapphire-framework = { workspace = true, features = ["workspace", "remote-server", "registry"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
