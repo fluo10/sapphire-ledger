@@ -2,7 +2,7 @@
 
 > Language: **English** | [日本語](README.ja.md)
 
-Local-first double-entry household ledger that keeps your data alive as plain text — timeless like fossils.
+A double-entry household ledger built on [sapphire-framework](https://github.com/fluo10/sapphire-framework) — file-based, local-first, made for human-agent collaboration.
 
 ## Concept
 

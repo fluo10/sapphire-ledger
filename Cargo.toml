@@ -9,7 +9,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-description = "Local-first double-entry household ledger that keeps your data alive as plain text - timeless like fossils"
+description = "A double-entry household ledger built on sapphire-framework - file-based, local-first, made for human-agent collaboration"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fluo10/sapphire-ledger"
 edition = "2024"
